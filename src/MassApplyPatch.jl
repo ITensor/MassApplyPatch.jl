@@ -39,6 +39,42 @@ function get_default_branch(repo, auth)
     return getproperty(GitHub.repo(repo; auth), :default_branch)
 end
 
+function unique_branch_name(base, git)
+    name = base
+    i = 1
+    while true
+        # Check if branch exists locally
+        local_exists = success(`$git rev-parse --verify $name`)
+        # Check if branch exists remotely by checking output, not just exit code
+        remote_output = read(`$git ls-remote --heads origin $name`, String)
+        remote_exists = !isempty(strip(remote_output))
+        if !local_exists && !remote_exists
+            return name
+        end
+        name = "$(base)-$i"
+        i += 1
+    end
+    return
+end
+
+function open_pr(repo, branchname; title, body, auth)
+    base = get_default_branch(repo, auth)
+    gh_repo = GitHub.Repo(repo)
+    org = split(repo, "/")[1]
+    head = "$(org):$(branchname)"
+    prs, _ = GitHub.pull_requests(
+        gh_repo; auth, params = Dict("state" => "open", "head" => head), page_limit = 1
+    )
+    if !isempty(prs)
+        @info "pushed; PR already exists"
+        return "pushed (PR already exists)"
+    end
+    params = Dict(:title => title, :body => body, :base => base, :head => branchname)
+    pr = GitHub.create_pull_request(gh_repo; auth, params)
+    @info "Created PR: $(pr.html_url)"
+    return pr
+end
+
 function make_patch_pr(
         patchname, repo::AbstractString;
         branch::AbstractString = default_branch(),
@@ -49,17 +85,17 @@ function make_patch_pr(
     repodir = joinpath(tmpdir, split(repo, "/"; limit = 2)[2])
     clone_repo(repo, repodir)
     cd(repodir) do
-        run(`$git checkout -b $branch`)
+        branchname = unique_branch_name(branch, git)
+        if branchname != branch
+            @info "Branch $branch exists, using $branchname instead."
+        end
+        run(`$git checkout -b $branchname`)
         patch!(patchname, repodir)
         run(`$git add .`)
         run(`$git commit -m $title`)
-        run(`$git push origin $branch`)
-        # Create PR using GitHub.jl
-        user, repo_name = split(repo, "/")
+        run(`$git push origin $branchname`)
         auth = github_auth()
-        base = get_default_branch(repo, auth)
-        pr = GitHub.create_pull_request(user, repo_name, title, body, branch, base; auth)
-        @info "Created PR: $(pr.html_url)"
+        return open_pr(repo, branchname; title, body, auth)
     end
     return nothing
 end
