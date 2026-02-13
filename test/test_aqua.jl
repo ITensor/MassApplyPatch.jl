@@ -1,5 +1,5 @@
-using MassApplyPatch: MassApplyPatch
 using Aqua: Aqua
+using MassApplyPatch: MassApplyPatch
 using Test: @testset
 
 @testset "Code quality (Aqua.jl)" begin
