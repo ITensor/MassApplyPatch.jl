@@ -31,7 +31,7 @@ function make_patch_pr(
     cd(repodir) do
         Git.branch_create(branch)
         Git.checkout(branch)
-        @invokelatest patch()
+        @invokelatest patch(repodir)
         Git.add(".")
         Git.commit(title)
         Git.push("origin", branch)
