@@ -13,9 +13,11 @@ default_branch() = "masspatch"
 default_title() = "Apply mass patch"
 default_body() = "This PR applies a mass patch."
 
+const git = Git.git()
+
 function clone_repo(repo::AbstractString, destdir::AbstractString)
     url = "https://github.com/$repo.git"
-    Git.clone(url, destdir)
+    run(`$git clone $url $destdir`)
     return nothing
 end
 
@@ -29,12 +31,11 @@ function make_patch_pr(
     repodir = joinpath(tmpdir, split(repo, "/"; limit = 2)[2])
     clone_repo(repo, repodir)
     cd(repodir) do
-        Git.branch_create(branch)
-        Git.checkout(branch)
-        @invokelatest patch(repodir)
-        Git.add(".")
-        Git.commit(title)
-        Git.push("origin", branch)
+        run(`$git checkout -b $branch`)
+        Base.invokelatest(patch, repodir)
+        run(`$git add .`)
+        run(`$git commit -m $title`)
+        run(`$git push origin $branch`)
         # Create PR using GitHub.jl
         user, repo_name = split(repo, "/")
         auth = GitHub.authenticate(ENV["GITHUB_TOKEN"])
@@ -86,8 +87,9 @@ function main(argv)
     if !isdefined(@__MODULE__, :patch)
         error("Patch file must define a function 'patch(repo_path)'.")
     end
+    patchfn = getfield(@__MODULE__, :patch)
     for repo in repos
-        make_patch_pr(patch, repo; branch, title, body)
+        make_patch_pr(patchfn, repo; branch, title, body)
     end
     # TODO: Clone each repo, apply patchfn, create PR
     return nothing
