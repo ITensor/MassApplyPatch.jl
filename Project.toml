@@ -1,0 +1,10 @@
+name = "MassApplyPatch"
+uuid = "a374f348-d733-473a-88bc-8a13261ed0c1"
+version = "0.1.0"
+authors = ["ITensor developers <support@itensor.org> and contributors"]
+
+[workspace]
+projects = ["benchmark", "dev", "docs", "examples", "test"]
+
+[compat]
+julia = "1.10"
