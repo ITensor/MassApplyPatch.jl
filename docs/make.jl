@@ -1,5 +1,5 @@
-using MassApplyPatch: MassApplyPatch
 using Documenter: Documenter, DocMeta, deploydocs, makedocs
+using MassApplyPatch: MassApplyPatch
 
 DocMeta.setdocmeta!(
     MassApplyPatch, :DocTestSetup, :(using MassApplyPatch); recursive = true
@@ -14,9 +14,9 @@ makedocs(;
     format = Documenter.HTML(;
         canonical = "https://itensor.github.io/MassApplyPatch.jl",
         edit_link = "main",
-        assets = ["assets/favicon.ico", "assets/extras.css"],
+        assets = ["assets/favicon.ico", "assets/extras.css"]
     ),
-    pages = ["Home" => "index.md", "Reference" => "reference.md"],
+    pages = ["Home" => "index.md", "Reference" => "reference.md"]
 )
 
 deploydocs(;
