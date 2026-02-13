@@ -14,7 +14,7 @@ Command line interface for MassApplyPatch.
 Arguments:
 
   - `argv`: Command line arguments. Expected format:
-    massapplypatch <org/repo>... --patch <patchfile> [--branch <branchname>] [--title <prtitle>] [--body <prbody>]
+    massapplypatch <org/repo>... --patch=patch.jl [--branch=branchname] [--title=prtitle] [--body=prbody]
 
 The patch function should be provided as a Julia file, which is included and must define a function `patch(repo_path)`.
 """
@@ -25,14 +25,14 @@ function main(argv)
     prtitle = "Apply mass patch"
     prbody = "This PR applies a mass patch."
     for arg in argv
-        if arg == "--patch"
-            patchfile = arg
-        elseif arg == "--branch"
-            branchname = arg
-        elseif arg == "--title"
-            prtitle = arg
-        elseif arg == "--body"
-            prbody = arg
+        if startswith(arg, "--patch=")
+            patchfile = split(arg, "="; limit = 2)[2]
+        elseif startswith(arg, "--branch=")
+            branchname = split(arg, "="; limit = 2)[2]
+        elseif startswith(arg, "--title=")
+            prtitle = split(arg, "="; limit = 2)[2]
+        elseif startswith(arg, "--body=")
+            prbody = split(arg, "="; limit = 2)[2]
         elseif startswith(arg, "--")
             error("Unknown option: $arg")
         else
@@ -40,13 +40,15 @@ function main(argv)
         end
     end
     if isnothing(patchfile)
-        error("--patch <patchfile> argument required")
+        error("--patch=<patchfile> argument required")
     end
+
+    @show repos patchfile branchname prtitle prbody
+
     # Load patch function
-    patchfn = nothing
-    Base.include(Main, patchfile)
-    if isdefined(Main, :patch)
-        patchfn = getfield(Main, :patch)
+    include(patchfile)
+    if isdefined(@__MODULE__, :patch)
+        println("patch is defined.")
     else
         error("Patch file must define a function 'patch(repo_path)'.")
     end
