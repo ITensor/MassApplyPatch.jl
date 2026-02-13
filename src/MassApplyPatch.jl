@@ -6,6 +6,12 @@ if VERSION >= v"1.11.0-DEV.469"
     end
 end
 
+function make_patch_pr(patch, repo; branch, title, body)
+    @show repo branch title body
+    @invokelatest patch()
+    return nothing
+end
+
 """
     MassApplyPatch.main(argv)
 
@@ -21,18 +27,18 @@ The patch function should be provided as a Julia file, which is included and mus
 function main(argv)
     repos = String[]
     patchfile = nothing
-    branchname = "masspatch"
-    prtitle = "Apply mass patch"
-    prbody = "This PR applies a mass patch."
+    branch = "masspatch"
+    title = "Apply mass patch"
+    body = "This PR applies a mass patch."
     for arg in argv
         if startswith(arg, "--patch=")
             patchfile = split(arg, "="; limit = 2)[2]
         elseif startswith(arg, "--branch=")
-            branchname = split(arg, "="; limit = 2)[2]
+            branch = split(arg, "="; limit = 2)[2]
         elseif startswith(arg, "--title=")
-            prtitle = split(arg, "="; limit = 2)[2]
+            title = split(arg, "="; limit = 2)[2]
         elseif startswith(arg, "--body=")
-            prbody = split(arg, "="; limit = 2)[2]
+            body = split(arg, "="; limit = 2)[2]
         elseif startswith(arg, "--")
             error("Unknown option: $arg")
         else
@@ -42,15 +48,13 @@ function main(argv)
     if isnothing(patchfile)
         error("--patch=<patchfile> argument required")
     end
-
-    @show repos patchfile branchname prtitle prbody
-
     # Load patch function
     include(patchfile)
-    if isdefined(@__MODULE__, :patch)
-        println("patch is defined.")
-    else
+    if !isdefined(@__MODULE__, :patch)
         error("Patch file must define a function 'patch(repo_path)'.")
+    end
+    for repo in repos
+        make_patch_pr(patch, repo; branch, title, body)
     end
     # TODO: Clone each repo, apply patchfn, create PR
     return nothing
