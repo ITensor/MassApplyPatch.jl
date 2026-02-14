@@ -9,4 +9,4 @@ MassApplyPatch = {path = ".."}
 [compat]
 Documenter = "1"
 Literate = "2"
-MassApplyPatch = "0.1"
+MassApplyPatch = "0.2"

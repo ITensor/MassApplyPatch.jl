@@ -1,5 +1,6 @@
 module MassApplyPatch
 
-# Write your package code here.
+include("main.jl")
+include("patches.jl")
 
 end

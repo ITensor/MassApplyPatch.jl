@@ -10,7 +10,7 @@ MassApplyPatch = {path = ".."}
 
 [compat]
 Aqua = "0.8"
-MassApplyPatch = "0.1"
+MassApplyPatch = "0.2"
 SafeTestsets = "0.1"
 Suppressor = "0.2"
 Test = "1.10"
