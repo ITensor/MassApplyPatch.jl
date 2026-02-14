@@ -2,10 +2,14 @@
 
 # Patch utilities.
 
-function format_project_toml(path::AbstractString)
+using TOML: TOML
+
+function sort_project_toml!(path::AbstractString)
     top_key_order = ["name", "uuid", "version", "authors"]
-    table_order =
-        ["workspace", "deps", "weakdeps", "extensions", "compat", "extras", "targets"]
+    table_order = [
+        "workspace", "deps", "weakdeps", "extensions", "compat", "apps", "extras",
+        "targets",
+    ]
     is_table(x) = x isa AbstractDict
     raw = read(path, String)
     data = TOML.parse(raw)
@@ -42,23 +46,77 @@ function format_project_toml(path::AbstractString)
     return true
 end
 
-# bump_patch_version patch.
-using TOML: TOML
-function patch!(::Val{:bump_patch_version}, path)
-    project_toml = joinpath(path, "Project.toml")
-    if !isfile(project_toml)
-        error("No Project.toml found in $path")
+# Strip trailing `.0` segments from a single version string.
+# E.g. `"1.10.0"` → `"1.10"`, `"4.0.0"` → `"4"`, `"1.2.3"` → `"1.2.3"`.
+function strip_version_zeros(s::AbstractString)
+    s = replace(s, r"\.0\.0$" => "")
+    s = replace(s, r"\.0$" => "")
+    return s
+end
+
+# Strip trailing `.0` or `.0.0` from version strings in `[compat]`.
+# E.g. `"1.10.0"` → `"1.10"`, `"4.0.0"` → `"4"`. Returns `true` if the file changed.
+function strip_compat_trailing_zeros!(path::AbstractString)
+    data = TOML.parsefile(path)
+    haskey(data, "compat") || return false
+    changed = false
+    for (pkg, val) in data["compat"]
+        # Handle comma-separated version specs like "0.6.2, 0.7"
+        parts = map(strip, split(val, ","))
+        new_parts = map(strip_version_zeros, parts)
+        new_val = join(new_parts, ", ")
+        if new_val != val
+            data["compat"][pkg] = new_val
+            changed = true
+        end
     end
-    # Bump patch version
-    data = TOML.parsefile(project_toml)
-    haskey(data, "version") || error("No version field in $project_toml")
-    v = VersionNumber(data["version"])
-    new_v = VersionNumber(v.major, v.minor, v.patch + 1)
-    data["version"] = string(new_v)
-    open(project_toml, "w") do io
+    changed || return false
+    open(path, "w") do io
+        return TOML.print(io, data)
+    end
+    sort_project_toml!(path)
+    return true
+end
+
+# Utility to bump a VersionNumber
+function bump_version(v::VersionNumber, position::Symbol)
+    if position === :major
+        return VersionNumber(v.major + 1, 0, 0)
+    elseif position === :minor
+        return VersionNumber(v.major, v.minor + 1, 0)
+    elseif position === :patch
+        return VersionNumber(v.major, v.minor, v.patch + 1)
+    else
+        error("position must be :major, :minor, or :patch")
+    end
+end
+
+# Utility to bump version in Project.toml
+function bump_project_toml_version!(path::AbstractString, position::Symbol)
+    data = TOML.parsefile(path)
+    haskey(data, "version") || error("No version field in $path")
+    version = VersionNumber(data["version"])
+    new_version = bump_version(version, position)
+    data["version"] = string(new_version)
+    open(path, "w") do io
         return TOML.print(io, data)
     end
     # Re-format after writing to ensure canonical ordering
-    format_project_toml(project_toml)
+    sort_project_toml!(path)
+    return nothing
+end
+
+for position in (:major, :minor, :patch)
+    patchname = Symbol(:bump_, position, :_version)
+    @eval function patch!(::Val{$(QuoteNode(patchname))}, path)
+        project_toml = joinpath(path, "Project.toml")
+        bump_project_toml_version!(project_toml, $(QuoteNode(position)))
+        return nothing
+    end
+end
+
+function patch!(::Val{:format_project_toml}, path)
+    project_toml = joinpath(path, "Project.toml")
+    strip_compat_trailing_zeros!(project_toml)
     return nothing
 end
