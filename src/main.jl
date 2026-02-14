@@ -12,18 +12,22 @@ if VERSION >= v"1.11.0-DEV.469"
     end
 end
 
-default_kwarg(patchname, arg::Symbol) = default_kwarg(to_patchname(patchname), Val(arg))
-default_kwarg(patchname, arg::Val) = default_kwarg(to_patchname(patchname), arg)
-default_kwarg(patchname::Val, arg::Val) = error("Not defined.")
+# String representation of a patch name, for use in default PR branch
+# names, titles, and bodies.
+patchname_string(patchname) = patchname_string(to_patchname(patchname))
+patchname_string(::Val{patchname}) where {patchname} = "$(patchname)"
 
-function default_kwarg(::Val{patchname}, key::Val{:branch}) where {patchname}
-    return "$(patchname)-patch"
+default_kwarg(patchname, arg::Symbol) = default_kwarg(patchname, Val(arg))
+default_kwarg(patchname, arg::Val) = error("Not defined.")
+
+function default_kwarg(patchname, key::Val{:branch})
+    return "$(patchname_string(patchname))-patch"
 end
-function default_kwarg(::Val{patchname}, key::Val{:title}) where {patchname}
-    return "Apply $(patchname) patch"
+function default_kwarg(patchname, key::Val{:title})
+    return "Apply $(patchname_string(patchname)) patch"
 end
-function default_kwarg(::Val{patchname}, key::Val{:body}) where {patchname}
-    return "This PR applies the $(patchname) patch."
+function default_kwarg(patchname, key::Val{:body})
+    return "This PR applies the $(patchname_string(patchname)) patch."
 end
 
 const git = Git.git()
@@ -126,18 +130,18 @@ Arguments:
 The patch function should be provided as a Julia file, which is included and must define a function `patch(repo_path)`.
 """
 function main(argv)
-    # Get the patch name to determine which patch to apply.
-    patchname_index = findfirst(startswith("--patch="), argv)
-    if isnothing(patchname_index)
+    # Get the patch names to determine which patches to apply.
+    patchargs = filter(arg -> startswith(arg, "--patch="), argv)
+    patchnames = map(arg -> split(arg, "="; limit = 2)[2], patchargs)
+    if isempty(patchnames)
         error("--patch=<patchname> argument required (e.g. --patch=bump_patch_version)")
     end
-    patchname = split(argv[patchname_index], "="; limit = 2)[2]
-    argv = setdiff(argv, [argv[patchname_index]])
+    argv = setdiff(argv, patchargs)
     # Get the repositories to apply the patch to and the rest of the options.
     repos = String[]
-    branch = default_kwarg(patchname, :branch)
-    title = default_kwarg(patchname, :title)
-    body = default_kwarg(patchname, :body)
+    branch = default_kwarg(patchnames, :branch)
+    title = default_kwarg(patchnames, :title)
+    body = default_kwarg(patchnames, :body)
     for arg in argv
         if startswith(arg, "--branch=")
             branch = split(arg, "="; limit = 2)[2]
@@ -152,7 +156,7 @@ function main(argv)
         end
     end
     for repo in repos
-        make_patch_pr(patchname, repo; branch, title, body)
+        make_patch_pr(patchnames, repo; branch, title, body)
     end
     return nothing
 end
@@ -162,6 +166,20 @@ to_patchname(patchname::AbstractString) = Val(Symbol(patchname))
 to_patchname(patchname::Symbol) = Val(patchname)
 patch!(patchname, path) = patch!(to_patchname(patchname), path)
 patch!(patchname::Val, path) = error("Patch $patchname not implemented.")
+
+struct CompositePatch{Patches}
+    patches::Patches
+end
+to_patchname(patchnames::AbstractArray) = CompositePatch(patchnames)
+function patchname_string(patchname::CompositePatch)
+    return join(patchname_string.(patchname.patches), "+")
+end
+function patch!(patchname::CompositePatch, path)
+    for patch in patchname.patches
+        patch!(patch, path)
+    end
+    return nothing
+end
 
 @static if isdefined(Base, Symbol("@main"))
     @main
