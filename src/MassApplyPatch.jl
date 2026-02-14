@@ -2,6 +2,11 @@ module MassApplyPatch
 
 using Git: Git
 using GitHub: GitHub
+using Suppressor: @suppress
+
+read_quiet(args...; kwargs...) = @suppress read(args...; kwargs...)
+run_quiet(args...; kwargs...) = @suppress run(args...; kwargs...)
+success_quiet(args...; kwargs...) = @suppress success(args...; kwargs...)
 
 if VERSION >= v"1.11.0-DEV.469"
     let str = "public main"
@@ -9,15 +14,25 @@ if VERSION >= v"1.11.0-DEV.469"
     end
 end
 
-default_branch() = "masspatch"
-default_title() = "Apply mass patch"
-default_body() = "This PR applies a mass patch."
+default_kwarg(patchname, arg::Symbol) = default_kwarg(to_patchname(patchname), Val(arg))
+default_kwarg(patchname, arg::Val) = default_kwarg(to_patchname(patchname), arg)
+default_kwarg(patchname::Val, arg::Val) = error("Not defined.")
+
+function default_kwarg(::Val{patchname}, key::Val{:branch}) where {patchname}
+    return "$(patchname)-patch"
+end
+function default_kwarg(::Val{patchname}, key::Val{:title}) where {patchname}
+    return "Apply $(patchname) patch"
+end
+function default_kwarg(::Val{patchname}, key::Val{:body}) where {patchname}
+    return "This PR applies the $(patchname) patch."
+end
 
 const git = Git.git()
 
 function clone_repo(repo::AbstractString, destdir::AbstractString)
     url = "https://github.com/$repo.git"
-    run(`$git clone $url $destdir`)
+    run_quiet(`$git clone $url $destdir`)
     return nothing
 end
 
@@ -44,9 +59,9 @@ function unique_branch_name(base, git)
     i = 1
     while true
         # Check if branch exists locally
-        local_exists = success(`$git rev-parse --verify $name`)
+        local_exists = success_quiet(`$git rev-parse --verify $name`)
         # Check if branch exists remotely by checking output, not just exit code
-        remote_output = read(`$git ls-remote --heads origin $name`, String)
+        remote_output = read_quiet(`$git ls-remote --heads origin $name`, String)
         remote_exists = !isempty(strip(remote_output))
         if !local_exists && !remote_exists
             return name
@@ -67,19 +82,19 @@ function open_pr(repo, branchname; title, body, auth)
     )
     if !isempty(prs)
         @info "pushed; PR already exists"
-        return "pushed (PR already exists)"
+        return nothing
     end
     params = Dict(:title => title, :body => body, :base => base, :head => branchname)
     pr = GitHub.create_pull_request(gh_repo; auth, params)
     @info "Created PR: $(pr.html_url)"
-    return pr
+    return nothing
 end
 
 function make_patch_pr(
         patchname, repo::AbstractString;
-        branch::AbstractString = default_branch(),
-        title::AbstractString = default_title(),
-        body::AbstractString = default_body()
+        branch::AbstractString = default_kwarg(patchname, :branch),
+        title::AbstractString = default_kwarg(patchname, :title),
+        body::AbstractString = default_kwarg(patchname, :body)
     )
     tmpdir = mktempdir()
     repodir = joinpath(tmpdir, split(repo, "/"; limit = 2)[2])
@@ -89,13 +104,13 @@ function make_patch_pr(
         if branchname != branch
             @info "Branch $branch exists, using $branchname instead."
         end
-        run(`$git checkout -b $branchname`)
+        run_quiet(`$git checkout -b $branchname`)
         patch!(patchname, repodir)
-        run(`$git add .`)
-        run(`$git commit -m $title`)
-        run(`$git push origin $branchname`)
+        run_quiet(`$git add .`)
+        run_quiet(`$git commit -m $title`)
+        run_quiet(`$git push origin $branchname`)
         auth = github_auth()
-        return open_pr(repo, branchname; title, body, auth)
+        return open_pr(repo, branchname; title = title, body = body, auth = auth)
     end
     return nothing
 end
@@ -113,15 +128,20 @@ Arguments:
 The patch function should be provided as a Julia file, which is included and must define a function `patch(repo_path)`.
 """
 function main(argv)
+    # Get the patch name to determine which patch to apply.
+    patchname_index = findfirst(startswith("--patch="), argv)
+    if isnothing(patchname_index)
+        error("--patch=<patchname> argument required (e.g. --patch=bump_patch_version)")
+    end
+    patchname = split(argv[patchname_index], "="; limit = 2)[2]
+    argv = setdiff(argv, [argv[patchname_index]])
+    # Get the repositories to apply the patch to and the rest of the options.
     repos = String[]
-    patchname = nothing
-    branch = default_branch()
-    title = default_title()
-    body = default_body()
+    branch = default_kwarg(patchname, :branch)
+    title = default_kwarg(patchname, :title)
+    body = default_kwarg(patchname, :body)
     for arg in argv
-        if startswith(arg, "--patch=")
-            patchname = split(arg, "="; limit = 2)[2]
-        elseif startswith(arg, "--branch=")
+        if startswith(arg, "--branch=")
             branch = split(arg, "="; limit = 2)[2]
         elseif startswith(arg, "--title=")
             title = split(arg, "="; limit = 2)[2]
@@ -133,11 +153,8 @@ function main(argv)
             push!(repos, arg)
         end
     end
-    if isnothing(patchname)
-        error("--patch=<patchname> argument required (e.g. --patch=bump_patch_version)")
-    end
     for repo in repos
-        make_patch_pr(patchname, repo; branch = branch, title = title, body = body)
+        make_patch_pr(patchname, repo; branch, title, body)
     end
     return nothing
 end
