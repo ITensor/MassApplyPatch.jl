@@ -4,7 +4,6 @@ using GitHub: GitHub
     protect_branch!(repos;
         checks::Vector{String},
         branch::Union{Nothing,String}=nothing,
-        token::AbstractString=get(ENV,"GITHUB_TOKEN",""),
         api::GitHub.GitHubAPI=GitHub.DEFAULT_API,
         strict::Bool=true,
         enforce_admins::Bool=false,
@@ -26,7 +25,6 @@ function protect_branch!(
         repos::AbstractVector{<:AbstractString};
         checks::Vector{String},
         branch::Union{Nothing, String} = nothing,
-        token::AbstractString = get(ENV, "GITHUB_TOKEN", ""),
         api::GitHub.GitHubAPI = GitHub.DEFAULT_API,
         strict::Bool = true,
         enforce_admins::Bool = false,
@@ -38,8 +36,7 @@ function protect_branch!(
         allow_force_pushes::Bool = false,
         allow_deletions::Bool = false
     )
-    isempty(token) && error("Set GITHUB_TOKEN or pass `token=`.")
-    auth = GitHub.authenticate(api, token)
+    auth = github_auth()
     results = Dict{String, Tuple{Bool, Int, String}}()
     for repo in repos
         repo = strip(repo)
