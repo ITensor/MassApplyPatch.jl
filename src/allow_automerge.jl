@@ -1,14 +1,16 @@
 using GitHub: GitHub
 
 """
-    enable_automerge!(repos; token=ENV["GITHUB_TOKEN"], api=GitHub.DEFAULT_API)
+    allow_automerge!(repos, enable::Bool = true; token=ENV["GITHUB_TOKEN"], api=GitHub.DEFAULT_API)
 
-Enable the repository-level "Allow auto-merge" setting for each "OWNER/REPO" in `repos`.
+Enable or disable the repository-level "Allow auto-merge" setting for each "OWNER/REPO" in `repos`,
+for example `allow_automerge!(["ITensor/SparseArraysBase.jl"], true)` to enable it
+or `allow_automerge!(["ITensor/SparseArraysBase.jl"], false)` to disable it.
 
 Returns: Dict("OWNER/REPO" => (ok::Bool, status::Int, message::String))
 """
-function enable_automerge!(
-        repos::AbstractVector{<:AbstractString};
+function allow_automerge!(
+        repos::AbstractVector{<:AbstractString}, enable::Bool = true;
         token::AbstractString = get(ENV, "GITHUB_TOKEN", ""),
         api::GitHub.GitHubAPI = GitHub.DEFAULT_API
     )
@@ -16,20 +18,21 @@ function enable_automerge!(
     auth = GitHub.authenticate(api, token)
     results = Dict{String, Tuple{Bool, Int, String}}()
     for repo in repos
-        results[repo] = enable_automerge!(repo; api, auth)
+        results[repo] = allow_automerge!(repo, enable; api, auth)
     end
     return results
 end
 
-function enable_automerge!(
-        repo::AbstractString; api::GitHub.GitHubAPI = GitHub.DEFAULT_API, auth
+function allow_automerge!(
+        repo::AbstractString, enable::Bool = true;
+        api::GitHub.GitHubAPI = GitHub.DEFAULT_API, auth
     )
     endpoint = "/repos/$repo"
     headers = Dict("Accept" => "application/vnd.github+json")
     resp = GitHub.gh_patch(
         api, endpoint;
         auth, headers,
-        params = Dict("allow_auto_merge" => true),
+        params = Dict("allow_auto_merge" => enable),
         handle_error = false
     )
     return if resp.status == 200
