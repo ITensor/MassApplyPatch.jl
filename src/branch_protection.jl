@@ -29,7 +29,7 @@ function protect_branch!(
         strict::Bool = true,
         enforce_admins::Bool = false,
         require_pr::Bool = true,
-        required_approvals::Int = 1,
+        required_approvals::Int = 0,
         require_code_owner_reviews::Bool = false,
         dismiss_stale_reviews::Bool = true,
         require_linear_history::Bool = true,
