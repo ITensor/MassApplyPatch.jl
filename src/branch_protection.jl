@@ -66,9 +66,9 @@ function protect_branch!(
                 end
             ),
             "restrictions" => nothing,
-            "required_linear_history" => Dict("enabled" => require_linear_history),
-            "allow_force_pushes" => Dict("enabled" => allow_force_pushes),
-            "allow_deletions" => Dict("enabled" => allow_deletions)
+            "required_linear_history" => require_linear_history,
+            "allow_force_pushes" => allow_force_pushes,   # or nothing
+            "allow_deletions" => allow_deletions
         )
         headers = Dict("Accept" => "application/vnd.github+json")
         resp = GitHub.gh_put(api, endpoint; auth, headers, params, handle_error = false)
