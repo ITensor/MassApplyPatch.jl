@@ -92,8 +92,12 @@ function open_pr(repo, branchname; title, body, auth)
     return string(pr.html_url)
 end
 
+# True if there are any changes (tracked/untracked/staged/unstaged).
+repo_dirty() = !isempty(strip(read_quiet(`$git status --porcelain`, String)))
+
 function make_patch_pr(
         patchname, repo::AbstractString;
+        notrigger_patchname = String[],
         branch::AbstractString = default_kwarg(patchname, :branch),
         title::AbstractString = default_kwarg(patchname, :title),
         body::AbstractString = default_kwarg(patchname, :body)
@@ -107,7 +111,16 @@ function make_patch_pr(
             @info "Branch $branch exists, using $branchname instead."
         end
         run_quiet(`$git checkout -b $branchname`)
+        # Trigger patches
         patch!(patchname, repodir)
+        if !repo_dirty()
+            @info "Trigger patches produced no changes; skipping PR."
+            return nothing
+        end
+        # Non-trigger patches (only applied if triggers changed something)
+        if !isempty(notrigger_patchname)
+            patch!(notrigger_patchname, repodir)
+        end
         run_quiet(`$git add .`)
         run_quiet(`$git commit -m $title`)
         run_quiet(`$git push origin $branchname`)
@@ -125,7 +138,8 @@ Command line interface for MassApplyPatch.
 Arguments:
 
   - `argv`: Command line arguments. Expected format:
-    massapplypatch <org/repo>... --patch=patch.jl [--branch=branchname] [--title=prtitle] [--body=prbody]
+    massapplypatch <org/repo>... --patch=<patchname>... [--notrigger-patch=<patchname>...]
+    [--branch=branchname] [--title=prtitle] [--body=prbody]
 
 The patch function should be provided as a Julia file, which is included and must define a function `patch(repo_path)`.
 """
@@ -137,11 +151,18 @@ function main(argv)
         error("--patch=<patchname> argument required (e.g. --patch=bump_patch_version)")
     end
     argv = setdiff(argv, patchargs)
+
+    # Non-trigger patches: applied only if trigger patches produced changes.
+    notrigger_patchargs = filter(arg -> startswith(arg, "--notrigger-patch="), argv)
+    notrigger_patchnames = map(arg -> split(arg, "="; limit = 2)[2], notrigger_patchargs)
+    argv = setdiff(argv, notrigger_patchargs)
+
     # Get the repositories to apply the patch to and the rest of the options.
     repos = String[]
-    branch = default_kwarg(patchnames, :branch)
-    title = default_kwarg(patchnames, :title)
-    body = default_kwarg(patchnames, :body)
+    all_patchnames = [patchnames; notrigger_patchnames]
+    branch = default_kwarg(all_patchnames, :branch)
+    title = default_kwarg(all_patchnames, :title)
+    body = default_kwarg(all_patchnames, :body)
     for arg in argv
         if startswith(arg, "--branch=")
             branch = split(arg, "="; limit = 2)[2]
@@ -157,8 +178,15 @@ function main(argv)
     end
     urls = String[]
     for repo in repos
-        url = make_patch_pr(patchnames, repo; branch, title, body)
-        push!(urls, url)
+        url = make_patch_pr(
+            patchnames,
+            repo;
+            notrigger_patchname = notrigger_patchnames,
+            branch,
+            title,
+            body
+        )
+        !isnothing(url) && push!(urls, url)
     end
     return urls
 end
