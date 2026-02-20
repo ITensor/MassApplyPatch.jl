@@ -139,7 +139,7 @@ Arguments:
 
   - `argv`: Command line arguments. Expected format:
     massapplypatch <org/repo>... --patch=<patchname>... [--notrigger-patch=<patchname>...]
-                                 [--branch=branchname] [--title=prtitle] [--body=prbody]
+    [--branch=branchname] [--title=prtitle] [--body=prbody]
 
 The patch function should be provided as a Julia file, which is included and must define a function `patch(repo_path)`.
 """
