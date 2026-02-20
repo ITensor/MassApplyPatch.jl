@@ -34,7 +34,11 @@ const git = Git.git()
 
 function clone_repo(repo::AbstractString, destdir::AbstractString)
     url = "https://github.com/$repo.git"
-    run_quiet(`$git clone $url $destdir`)
+    try
+        run_quiet(`$git clone $url $destdir`)
+    catch e
+        @error "Failed to clone repository $repo: $e"
+    end
     return nothing
 end
 
@@ -44,7 +48,8 @@ function github_auth()
     if isempty(token)
         try
             token = readchomp(`gh auth token`)
-        catch
+        catch e
+            @error "Failed to get GitHub auth token from gh CLI: $e"
         end
     end
     isempty(token) &&
@@ -105,6 +110,7 @@ function make_patch_pr(
     tmpdir = mktempdir()
     repodir = joinpath(tmpdir, split(repo, "/"; limit = 2)[2])
     clone_repo(repo, repodir)
+    !isdir(repodir) && return nothing
     url = cd(repodir) do
         branchname = unique_branch_name(branch, git)
         if branchname != branch
@@ -114,7 +120,7 @@ function make_patch_pr(
         # Trigger patches
         patch!(patchname, repodir)
         if !repo_dirty()
-            @info "Trigger patches produced no changes; skipping PR."
+            @info "Trigger patches produced no changes to $(repo); skipping PR."
             return nothing
         end
         # Non-trigger patches (only applied if triggers changed something)
