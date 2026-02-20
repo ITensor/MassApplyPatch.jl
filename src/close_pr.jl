@@ -12,11 +12,11 @@ Returns `true` if the close command succeeded, `false` otherwise (unless `ignore
 Requires: `gh` installed and authenticated (`gh auth login`).
 """
 function close_pr!(
-    pr::AbstractString;
-    delete_branch::Bool = false,
-    comment::Union{Nothing,AbstractString} = nothing,
-    ignore_errors::Bool = true,
-)
+        pr::AbstractString;
+        delete_branch::Bool = false,
+        comment::Union{Nothing, AbstractString} = nothing,
+        ignore_errors::Bool = true
+    )
     cmd = `gh pr close $pr`
     delete_branch && (cmd = `$cmd --delete-branch`)
     ok = success_quiet(cmd)
@@ -37,13 +37,13 @@ end
 Close multiple PRs. Returns a `Vector{Bool}` of close results.
 """
 function close_prs!(
-    prs::AbstractVector{<:AbstractString};
-    delete_branch::Bool = false,
-    comment::Union{Nothing,AbstractString} = nothing,
-    ignore_errors::Bool = true,
-)
+        prs::AbstractVector{<:AbstractString};
+        delete_branch::Bool = false,
+        comment::Union{Nothing, AbstractString} = nothing,
+        ignore_errors::Bool = true
+    )
     return [
         close_pr!(pr; delete_branch, comment, ignore_errors)
-        for pr in prs
+            for pr in prs
     ]
 end
