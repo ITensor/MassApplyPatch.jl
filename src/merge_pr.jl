@@ -10,16 +10,17 @@ end
 """
 Merge PRs (REST API).
 
-- pr_urls: ["https://github.com/OWNER/REPO/pull/123", ...]
-- merge_method: "merge" | "squash" | "rebase"
-- sha: optional safety check (merge only if head SHA matches)
+  - pr_urls: ["https://github.com/OWNER/REPO/pull/123", ...]
+  - merge_method: "merge" | "squash" | "rebase"
+  - sha: optional safety check (merge only if head SHA matches)
 """
-function merge_prs!(pr_urls::AbstractVector{<:AbstractString};
-                   merge_method::AbstractString = "squash",
-                   sha::Union{Nothing,String} = nothing,
-                   commit_title::Union{Nothing,String} = nothing,
-                   commit_message::Union{Nothing,String} = nothing)
-
+function merge_prs!(
+        pr_urls::AbstractVector{<:AbstractString};
+        merge_method::AbstractString = "squash",
+        sha::Union{Nothing, String} = nothing,
+        commit_title::Union{Nothing, String} = nothing,
+        commit_message::Union{Nothing, String} = nothing
+    )
     auth = github_auth()
     results = Vector{Any}(undef, length(pr_urls))
 
@@ -27,12 +28,12 @@ function merge_prs!(pr_urls::AbstractVector{<:AbstractString};
         owner, repo, prnum = _parse_pr_url(url)
         r = GitHub.Repo("$owner/$repo")
 
-        params = Dict{Symbol,Any}(:merge_method => merge_method)
+        params = Dict{Symbol, Any}(:merge_method => merge_method)
         sha !== nothing && (params[:sha] = sha)
         commit_title !== nothing && (params[:commit_title] = commit_title)
         commit_message !== nothing && (params[:commit_message] = commit_message)
 
-        results[i] = GitHub.merge_pull_request(r, prnum; auth=auth, params=params)
+        results[i] = GitHub.merge_pull_request(r, prnum; auth = auth, params = params)
     end
 
     return results
