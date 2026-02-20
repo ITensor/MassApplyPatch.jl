@@ -89,7 +89,7 @@ function open_pr(repo, branchname; title, body, auth)
     params = Dict(:title => title, :body => body, :base => base, :head => branchname)
     pr = GitHub.create_pull_request(gh_repo; auth, params)
     @info "Created PR: $(pr.html_url)"
-    return nothing
+    return string(pr.html_url)
 end
 
 function make_patch_pr(
@@ -101,7 +101,7 @@ function make_patch_pr(
     tmpdir = mktempdir()
     repodir = joinpath(tmpdir, split(repo, "/"; limit = 2)[2])
     clone_repo(repo, repodir)
-    cd(repodir) do
+    url = cd(repodir) do
         branchname = unique_branch_name(branch, git)
         if branchname != branch
             @info "Branch $branch exists, using $branchname instead."
@@ -112,9 +112,9 @@ function make_patch_pr(
         run_quiet(`$git commit -m $title`)
         run_quiet(`$git push origin $branchname`)
         auth = github_auth()
-        return open_pr(repo, branchname; title = title, body = body, auth = auth)
+        return open_pr(repo, branchname; title, body, auth)
     end
-    return nothing
+    return url
 end
 
 """
@@ -155,10 +155,12 @@ function main(argv)
             push!(repos, arg)
         end
     end
+    urls = String[]
     for repo in repos
-        make_patch_pr(patchnames, repo; branch, title, body)
+        url = make_patch_pr(patchnames, repo; branch, title, body)
+        push!(urls, url)
     end
-    return nothing
+    return urls
 end
 
 # Patch dispatch system
