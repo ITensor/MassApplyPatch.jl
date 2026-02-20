@@ -181,9 +181,10 @@ function main(argv)
     for repo in repos
         pr = try
             make_patch_pr(
-                    patchnames, repo; notrigger_patchname = notrigger_patchnames, branch, title,
-                    body
-                )
+                patchnames, repo; notrigger_patchname = notrigger_patchnames, branch,
+                title,
+                body
+            )
         catch error
             @error "Error patching $repo: $error"
             push!(failed_repos, repo)

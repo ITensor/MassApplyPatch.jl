@@ -74,8 +74,10 @@ function protect_branch!(
         resp = GitHub.gh_put(api, endpoint; auth, headers, params, handle_error = false)
         if resp.status in (200, 201)
             results[repo] = (true, resp.status, "ok (protected $target_branch)")
+            @info "Protected $repo:$target_branch with checks: $(join(checks, ", "))"
         else
             results[repo] = (false, resp.status, String(resp.body))
+            @warn "Failed to protect $repo:$target_branch with checks: $(join(checks, ", "))"
         end
     end
     return results
