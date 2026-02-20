@@ -23,18 +23,16 @@ function merge_prs!(
     )
     auth = github_auth()
     results = Vector{Any}(undef, length(pr_urls))
-
     for (i, url) in pairs(pr_urls)
+        @info "Merging PR: $url"
         owner, repo, prnum = _parse_pr_url(url)
         r = GitHub.Repo("$owner/$repo")
-
         params = Dict{Symbol, Any}(:merge_method => merge_method)
         sha !== nothing && (params[:sha] = sha)
         commit_title !== nothing && (params[:commit_title] = commit_title)
         commit_message !== nothing && (params[:commit_message] = commit_message)
-
-        results[i] = GitHub.merge_pull_request(r, prnum; auth = auth, params = params)
+        results[i] = GitHub.merge_pull_request(r, prnum; auth, params)
+        @info "Result: merged=$(results[i]["merged"]), message=$(results[i]["message"])"
     end
-
     return results
 end

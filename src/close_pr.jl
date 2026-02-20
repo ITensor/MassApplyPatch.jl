@@ -21,12 +21,15 @@ function close_pr!(
     delete_branch && (cmd = `$cmd --delete-branch`)
     ok = success_quiet(cmd)
     if !ok
+        @warn "Failed to close PR: $pr"
         ignore_errors || error("Failed to close PR: $pr")
         return false
     end
+    @info "Closed PR: $pr"
     if comment !== nothing
         # Use a separate command for compatibility across gh versions.
         run_quiet(`gh pr comment $pr --body $comment`)
+        @info "Commented on PR: $pr with comment: $comment"
     end
     return true
 end

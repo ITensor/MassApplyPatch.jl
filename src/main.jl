@@ -176,15 +176,23 @@ function main(argv)
             push!(repos, arg)
         end
     end
-    urls = String[]
+    prs = String[]
+    failed_repos = String[]
     for repo in repos
-        url = make_patch_pr(
-            patchnames, repo; notrigger_patchname = notrigger_patchnames, branch, title,
-            body
-        )
-        !isnothing(url) && push!(urls, url)
+        pr = try
+            make_patch_pr(
+                patchnames, repo; notrigger_patchname = notrigger_patchnames, branch,
+                title,
+                body
+            )
+        catch error
+            @error "Error patching $repo: $error"
+            push!(failed_repos, repo)
+            nothing
+        end
+        !isnothing(pr) && push!(prs, pr)
     end
-    return urls
+    return (; prs, failed_repos)
 end
 
 # Patch dispatch system
