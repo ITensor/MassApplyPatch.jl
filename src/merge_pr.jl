@@ -74,19 +74,12 @@ function merge_prs!(
         if force && !(get(res, "merged", false) === true)
             @info "REST merge did not succeed; retrying with `gh pr merge --admin`"
             ok, gh_out, gh_err = _gh_merge_pr(
-                url;
-                merge_method,
-                sha,
-                commit_title,
-                commit_message,
-                admin = true
+                url; merge_method, sha, commit_title, commit_message, admin = true
             )
             if ok
                 res = Dict(
-                    "merged" => true,
-                    "message" => "Merged via `gh pr merge --admin`",
-                    "gh_stdout" => gh_out,
-                    "gh_stderr" => gh_err
+                    "merged" => true, "message" => "Merged via `gh pr merge --admin`",
+                    "gh_stdout" => gh_out, "gh_stderr" => gh_err
                 )
             else
                 res["gh_stdout"] = gh_out
