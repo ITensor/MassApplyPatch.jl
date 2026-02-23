@@ -49,7 +49,16 @@ Keyword arguments:
   - `commit_message::Union{Nothing, String}=nothing`: custom commit message (equivalent to `--body`).
 """
 function merge_prs!(pr_urls::AbstractVector{<:AbstractString}; kwargs...)
-    return [merge_pr!(url; kwargs...) for url in pr_urls]
+    return map(pr_urls) do url
+        @info "Merging PR: $url"
+        result = merge_pr!(url; kwargs...)
+        if result.ok
+            @info "Successfully merged PR: $url"
+        else
+            @error "Failed to merge PR: $url" result.stderr
+        end
+        return result
+    end
 end
 
 """
@@ -58,7 +67,18 @@ end
 Disable auto-merge for the given PR URLs via `gh pr merge --disable-auto`.
 """
 function disable_automerges!(pr_urls::AbstractVector{<:AbstractString})
-    return [disable_automerge!(url) for url in pr_urls]
+    return map(pr_urls) do url
+        @info "Disabling auto-merge for PR: $url"
+        result = disable_automerge!(url)
+        if result.ok && result.changed
+            @info "Auto-merge disabled for PR: $url"
+        elseif result.ok && !result.changed
+            @warn "Auto-merge not enabled or PR not open: $url" result.stderr
+        else
+            @error "Failed to disable auto-merge for PR: $url" result.stderr
+        end
+        return result
+    end
 end
 function disable_automerge!(pr_url::AbstractString)
     isnothing(Sys.which("gh")) &&
