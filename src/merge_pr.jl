@@ -49,13 +49,26 @@ Keyword arguments:
   - `commit_message::Union{Nothing, String}=nothing`: custom commit message (equivalent to `--body`).
 """
 function merge_prs!(pr_urls::AbstractVector{<:AbstractString}; kwargs...)
+    force = get(kwargs, :force, false)
     return map(pr_urls) do url
-        @info "Merging PR: $url"
+        if force
+            @info "Force merging PR: $url (bypassing requirements)"
+        else
+            @info "Merging PR: $url (auto merge, requirements enforced)"
+        end
         result = merge_pr!(url; kwargs...)
         if result.ok
-            @info "Successfully merged PR: $url"
+            if force
+                @info "Successfully force merged PR: $url" result.stdout
+            else
+                @info "Successfully auto merged PR: $url" result.stdout
+            end
         else
-            @error "Failed to merge PR: $url" result.stderr
+            if force
+                @error "Failed to force merge PR: $url" result.stderr
+            else
+                @error "Failed to auto merge PR: $url" result.stderr
+            end
         end
         return result
     end
@@ -71,7 +84,7 @@ function disable_automerges!(pr_urls::AbstractVector{<:AbstractString})
         @info "Disabling auto-merge for PR: $url"
         result = disable_automerge!(url)
         if result.ok && result.changed
-            @info "Auto-merge disabled for PR: $url"
+            @info "Auto-merge disabled for PR: $url" result.stdout
         elseif result.ok && !result.changed
             @warn "Auto-merge not enabled or PR not open: $url" result.stderr
         else
