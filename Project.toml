@@ -1,6 +1,6 @@
 name = "MassApplyPatch"
 uuid = "a374f348-d733-473a-88bc-8a13261ed0c1"
-version = "0.2.17"
+version = "0.2.18"
 authors = ["ITensor developers <support@itensor.org> and contributors"]
 
 [workspace]
