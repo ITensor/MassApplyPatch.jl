@@ -45,3 +45,4 @@ julia> Pkg.add("MassApplyPatch")
 
 using MassApplyPatch: MassApplyPatch
 # Examples go here.
+x = 2
