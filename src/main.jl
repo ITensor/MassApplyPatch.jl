@@ -51,7 +51,7 @@ end
 const git = Git.git()
 
 function clone_repo(repo::AbstractString, destdir::AbstractString)
-    url = "https://github.com/$repo.git"
+    url = "git@github.com:$repo.git"
     try
         run_with_output(`$git clone $url $destdir`)
     catch e
