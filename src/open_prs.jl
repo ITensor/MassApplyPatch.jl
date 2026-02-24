@@ -11,17 +11,17 @@ function open_prs(repos::AbstractVector{<:AbstractString}; kwargs...)
 end
 
 function open_prs(
-    fullrepo::AbstractString;
-    sort::AbstractString = "updated",
-    direction::AbstractString = "desc",
-)
+        fullrepo::AbstractString;
+        sort::AbstractString = "updated",
+        direction::AbstractString = "desc"
+    )
     auth = github_auth()
     params = Dict(
         "state" => "open",
         "sort" => String(sort),
         "direction" => String(direction),
         "per_page" => 100,  # GitHub API max page size
-        "page" => 1,
+        "page" => 1
     )
     # GitHub.jl paginates automatically; `page_limit` defaults to Inf (all pages).
     prs, _ = GitHub.pull_requests(String(fullrepo); auth, params)
@@ -31,6 +31,6 @@ function open_prs(
         body = string(something(pr.body, ""))
         head = pr.head
         branch = isnothing(head) ? "" : String(something(head.ref, ""))
-        (; url, branch, title, body)
+        return (; url, branch, title, body)
     end
 end
