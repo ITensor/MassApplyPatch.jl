@@ -6,6 +6,24 @@ read_quiet(args...; kwargs...) = @suppress read(args...; kwargs...)
 run_quiet(args...; kwargs...) = @suppress run(args...; kwargs...)
 success_quiet(args...; kwargs...) = @suppress success(args...; kwargs...)
 
+function run_with_output(cmd::Cmd)
+    out = IOBuffer()
+    err = IOBuffer()
+    proc = run(pipeline(ignorestatus(cmd); stdout = out, stderr = err))
+    if !success(proc)
+        stdout_str = strip(String(take!(out)))
+        stderr_str = strip(String(take!(err)))
+        msg = IOBuffer()
+        println(msg, "Failed to run command")
+        println(msg, "Command: $(cmd)")
+        println(msg, "Exit code: $(proc.exitcode)")
+        !isempty(stdout_str) && println(msg, "stdout:\n$stdout_str")
+        !isempty(stderr_str) && println(msg, "stderr:\n$stderr_str")
+        error(String(take!(msg)))
+    end
+    return nothing
+end
+
 if VERSION >= v"1.11.0-DEV.469"
     let str = "public main"
         eval(Meta.parse(str))
@@ -33,9 +51,9 @@ end
 const git = Git.git()
 
 function clone_repo(repo::AbstractString, destdir::AbstractString)
-    url = "https://github.com/$repo.git"
+    url = "git@github.com:$repo.git"
     try
-        run_quiet(`$git clone $url $destdir`)
+        run_with_output(`$git clone $url $destdir`)
     catch e
         @error "Failed to clone repository $repo: $e"
     end
@@ -116,7 +134,7 @@ function make_patch_pr(
         if branchname != branch
             @info "Branch $branch exists, using $branchname instead."
         end
-        run_quiet(`$git checkout -b $branchname`)
+        run_with_output(`$git checkout -b $branchname`)
         # Trigger patches
         patch!(patchname, repodir)
         if !repo_dirty()
@@ -127,9 +145,9 @@ function make_patch_pr(
         if !isempty(notrigger_patchname)
             patch!(notrigger_patchname, repodir)
         end
-        run_quiet(`$git add .`)
-        run_quiet(`$git commit -m $title`)
-        run_quiet(`$git push origin $branchname`)
+        run_with_output(`$git add .`)
+        run_with_output(`$git commit -m $title`)
+        run_with_output(`$git push origin $branchname`)
         auth = github_auth()
         return open_pr(repo, branchname; title, body, auth)
     end
