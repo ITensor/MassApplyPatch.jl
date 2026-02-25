@@ -8,5 +8,6 @@ include("merge_pr.jl")
 include("close_pr.jl")
 include("open_prs.jl")
 include("pr_status.jl")
+include("trigger_workflow_dispatch.jl")
 
 end
