@@ -7,5 +7,6 @@ include("branch_protection.jl")
 include("merge_pr.jl")
 include("close_pr.jl")
 include("open_prs.jl")
+include("pr_status.jl")
 
 end
