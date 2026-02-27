@@ -6,6 +6,51 @@ using ITensorFormatter: ITensorFormatter
 using Pkg: Pkg
 using TOML: TOML
 
+function is_stdlib_uuid(uuid_str::AbstractString)
+    try
+        return Pkg.Types.is_stdlib(Base.UUID(uuid_str))
+    catch
+        return false
+    end
+end
+
+function project_depnames(project::AbstractDict; include_weakdeps::Bool = true)
+    depnames = Set{String}()
+    deps = get(project, "deps", Dict{String, Any}())
+    weakdeps = if include_weakdeps
+        get(project, "weakdeps", Dict{String, Any}())
+    else
+        Dict{String, Any}()
+    end
+    for (name, uuid) in pairs(deps)
+        uuid isa AbstractString && is_stdlib_uuid(uuid) && continue
+        push!(depnames, String(name))
+    end
+    for (name, uuid) in pairs(weakdeps)
+        uuid isa AbstractString && is_stdlib_uuid(uuid) && continue
+        push!(depnames, String(name))
+    end
+    return depnames
+end
+
+function add_registry_deps_to_temp_env!(names::Set{String})
+    specs = [Pkg.PackageSpec(; name) for name in sort!(collect(names))]
+    return try
+        Pkg.add(specs)
+    catch err
+        @warn "Failed to add all dependencies in a single call; falling back to per-package adds." exception =
+            (err, catch_backtrace())
+        for spec in specs
+            try
+                Pkg.add(spec)
+            catch inner_err
+                @warn "Could not add dependency $(spec.name) while inferring compat; skipping." exception =
+                    (inner_err, catch_backtrace())
+            end
+        end
+    end
+end
+
 function write_compat_entries!(
         project_toml::AbstractString,
         entries::AbstractDict{<:AbstractString, <:AbstractString}
@@ -44,15 +89,8 @@ function add_compat_entries!(
         julia_fallback::Union{Nothing, AbstractString} = nothing
     )
     project = TOML.parsefile(project_toml)
-    deps = get(project, "deps", Dict{String, Any}())
-    weakdeps = if include_weakdeps
-        get(project, "weakdeps", Dict{String, Any}())
-    else
-        Dict{String, Any}()
-    end
     compat = get(project, "compat", Dict{String, Any}())
-    depnames = Set{String}(String.(keys(deps)))
-    union!(depnames, String.(keys(weakdeps)))
+    depnames = project_depnames(project; include_weakdeps)
     existing_compat = Set{String}(String.(keys(compat)))
     missing = setdiff(depnames, existing_compat)
 
@@ -91,22 +129,26 @@ function infer_compat_entries(
     project_toml = abspath(project_toml)
     project_dir = dirname(project_toml)
     project = TOML.parsefile(project_toml)
-    deps = get(project, "deps", Dict{String, Any}())
-    weakdeps = if include_weakdeps
-        get(project, "weakdeps", Dict{String, Any}())
-    else
-        Dict{String, Any}()
-    end
-    names = Set(String.(collect(keys(deps))))
-    union!(names, String.(collect(keys(weakdeps))))
+    names = project_depnames(project; include_weakdeps)
 
     inferred = Dict{String, String}()
     isempty(names) && return inferred
 
     mktempdir() do tmp
         Pkg.activate(tmp)
-        Pkg.develop(; path = project_dir)
-        Pkg.resolve()
+        is_package_project = haskey(project, "name") && haskey(project, "uuid")
+        if is_package_project
+            try
+                Pkg.develop(; path = project_dir)
+                Pkg.resolve()
+            catch err
+                @warn "Failed to develop/resolve project at $project_dir while inferring compat, falling back to adding deps by name." exception =
+                    (err, catch_backtrace())
+                add_registry_deps_to_temp_env!(names)
+            end
+        else
+            add_registry_deps_to_temp_env!(names)
+        end
         depinfo = Pkg.dependencies()
         by_name = Dict(info.name => info for (_, info) in depinfo if !isnothing(info.name))
         for name in sort!(collect(names))
@@ -143,14 +185,14 @@ function try_install_juliaup!()
 end
 
 function detect_lts_julia_version(; allow_install_juliaup::Bool = true)
-    version = read_version_cmd(`julia +lts -e "print(VERSION)"`)
+    version = read_version_cmd(`julia +lts --startup-file=no -e "print(VERSION)"`)
     !isnothing(version) && return version
 
     allow_install_juliaup || return nothing
 
     success_quiet(`juliaup --version`) || try_install_juliaup!()
     success_quiet(`juliaup add lts`)
-    return read_version_cmd(`julia +lts -e "print(VERSION)"`)
+    return read_version_cmd(`julia +lts --startup-file=no -e "print(VERSION)"`)
 end
 
 function lts_julia_compat(;

@@ -78,6 +78,27 @@ end
     end
 end
 
+@testset "add_compat_entries! unnamed project file" begin
+    mktempdir() do dir
+        project_toml = joinpath(dir, "Project.toml")
+        write(
+            project_toml,
+            """
+            [deps]
+            JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+            """
+        )
+        MassApplyPatch.add_compat_entries!(
+            project_toml;
+            include_julia = false,
+            allow_install_juliaup = false
+        )
+        data = TOML.parsefile(project_toml)
+        @test haskey(data, "compat")
+        @test haskey(data["compat"], "JSON")
+    end
+end
+
 @testset "compat_lower_bound" begin
     @test MassApplyPatch.compat_lower_bound(v"1.2.3") == "1.2"
     @test MassApplyPatch.compat_lower_bound(v"2.0.0") == "2.0"
