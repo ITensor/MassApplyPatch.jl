@@ -69,7 +69,7 @@ function write_compat_entries!(
 end
 
 """
-    add_compat_entries!(project_toml; include_weakdeps=true, include_julia=true)
+    add_compat_entries!(project_toml; include_weakdeps=true, include_julia=nothing)
 
 Add missing `[compat]` entries in a `Project.toml` file.
 Existing `[compat]` entries are preserved as-is.
@@ -79,16 +79,20 @@ Missing entries are computed as:
   - package names in `[deps]` (and optionally `[weakdeps]`)
   - minus existing package names in `[compat]`
 
-By default, also adds `julia` compat if it is missing.
+By default, `julia` compat is added only for package projects (those with both
+`name` and `uuid` fields). For sub-environments like `test/docs/examples`,
+`julia` compat is skipped unless `include_julia=true` is passed explicitly.
 """
 function add_compat_entries!(
         project_toml::AbstractString;
         include_weakdeps::Bool = true,
-        include_julia::Bool = true,
+        include_julia::Union{Nothing, Bool} = nothing,
         allow_install_juliaup::Bool = true,
         julia_fallback::Union{Nothing, AbstractString} = nothing
     )
     project = TOML.parsefile(project_toml)
+    is_package_project = haskey(project, "name") && haskey(project, "uuid")
+    include_julia = isnothing(include_julia) ? is_package_project : include_julia
     compat = get(project, "compat", Dict{String, Any}())
     depnames = project_depnames(project; include_weakdeps)
     existing_compat = Set{String}(String.(keys(compat)))
