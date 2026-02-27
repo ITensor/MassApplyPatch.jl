@@ -13,12 +13,33 @@ function is_stdlib_uuid(uuid_str::AbstractString)
             return Pkg.Types.is_stdlib(uuid)
         end
         if isdefined(Pkg.Types, :stdlibs)
-            return uuid in values(Pkg.Types.stdlibs())
+            stdlibs = Pkg.Types.stdlibs()
+            for (k, v) in pairs(stdlibs)
+                try
+                    Base.UUID(string(k)) == uuid && return true
+                catch
+                end
+                try
+                    Base.UUID(string(v)) == uuid && return true
+                catch
+                end
+            end
         end
         return false
     catch
         return false
     end
+end
+
+function is_stdlib_name(name::AbstractString)
+    path = try
+        Base.find_package(String(name))
+    catch
+        nothing
+    end
+    isnothing(path) && return false
+    norm = replace(String(path), '\\' => '/')
+    return occursin("/stdlib/", norm)
 end
 
 function project_depnames(project::AbstractDict; include_weakdeps::Bool = true)
@@ -47,25 +68,16 @@ function project_stdlib_depnames(project::AbstractDict; include_weakdeps::Bool =
         Dict{String, Any}()
     end
     for (name, uuid) in pairs(deps)
-        uuid isa AbstractString && is_stdlib_uuid(uuid) && push!(stdlibs, String(name))
+        if (uuid isa AbstractString && is_stdlib_uuid(uuid)) || is_stdlib_name(String(name))
+            push!(stdlibs, String(name))
+        end
     end
     for (name, uuid) in pairs(weakdeps)
-        uuid isa AbstractString && is_stdlib_uuid(uuid) && push!(stdlibs, String(name))
+        if (uuid isa AbstractString && is_stdlib_uuid(uuid)) || is_stdlib_name(String(name))
+            push!(stdlibs, String(name))
+        end
     end
     return stdlibs
-end
-
-function known_stdlib_names()
-    names = Set{String}()
-    try
-        if isdefined(Pkg.Types, :stdlibs)
-            for (name, _) in pairs(Pkg.Types.stdlibs())
-                push!(names, String(name))
-            end
-        end
-    catch
-    end
-    return names
 end
 
 function add_registry_deps_to_temp_env!(names::Set{String})
@@ -189,10 +201,7 @@ function infer_compat_entries(
     project_dir = dirname(project_toml)
     project = TOML.parsefile(project_toml)
     names = project_depnames(project; include_weakdeps)
-    stdlib_names = union(
-        project_stdlib_depnames(project; include_weakdeps),
-        intersect(names, known_stdlib_names())
-    )
+    stdlib_names = project_stdlib_depnames(project; include_weakdeps)
 
     inferred = Dict{String, String}()
     isempty(names) && return inferred
