@@ -99,6 +99,60 @@ end
     end
 end
 
+@testset "add_compat_entries! includes weakdeps" begin
+    mktempdir() do dir
+        project_toml = joinpath(dir, "Project.toml")
+        write(
+            project_toml,
+            """
+            name = "ExamplePkg"
+            uuid = "11111111-1111-1111-1111-111111111111"
+            version = "0.1.0"
+            [deps]
+            JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+            [weakdeps]
+            HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+            [compat]
+            JSON = "1.4"
+            """
+        )
+        MassApplyPatch.add_compat_entries!(
+            project_toml;
+            include_julia = false,
+            allow_install_juliaup = false
+        )
+        data = TOML.parsefile(project_toml)
+        @test haskey(data["compat"], "JSON")
+        @test haskey(data["compat"], "HDF5")
+    end
+end
+
+@testset "add_compat_entries! includes stdlib deps" begin
+    mktempdir() do dir
+        project_toml = joinpath(dir, "Project.toml")
+        write(
+            project_toml,
+            """
+            name = "ExamplePkg"
+            uuid = "11111111-1111-1111-1111-111111111111"
+            version = "0.1.0"
+            [deps]
+            Random = "9a3f8284-686f-5f34-9a11-845980a1fd5c"
+            """
+        )
+        MassApplyPatch.add_compat_entries!(
+            project_toml;
+            include_julia = true,
+            allow_install_juliaup = false,
+            julia_fallback = "1.10"
+        )
+        data = TOML.parsefile(project_toml)
+        @test occursin(r"^\d+\.\d+$", data["compat"]["julia"])
+        @test haskey(data["compat"], "Random")
+        @test data["compat"]["Random"] == data["compat"]["julia"]
+    end
+end
+
 @testset "compat_lower_bound" begin
     @test MassApplyPatch.compat_lower_bound(v"1.2.3") == "1.2"
     @test MassApplyPatch.compat_lower_bound(v"2.0.0") == "2.0"

@@ -8,7 +8,14 @@ using TOML: TOML
 
 function is_stdlib_uuid(uuid_str::AbstractString)
     try
-        return Pkg.Types.is_stdlib(Base.UUID(uuid_str))
+        uuid = Base.UUID(uuid_str)
+        if isdefined(Pkg.Types, :is_stdlib)
+            return Pkg.Types.is_stdlib(uuid)
+        end
+        if isdefined(Pkg.Types, :stdlibs)
+            return uuid in values(Pkg.Types.stdlibs())
+        end
+        return false
     catch
         return false
     end
@@ -23,14 +30,42 @@ function project_depnames(project::AbstractDict; include_weakdeps::Bool = true)
         Dict{String, Any}()
     end
     for (name, uuid) in pairs(deps)
-        uuid isa AbstractString && is_stdlib_uuid(uuid) && continue
         push!(depnames, String(name))
     end
     for (name, uuid) in pairs(weakdeps)
-        uuid isa AbstractString && is_stdlib_uuid(uuid) && continue
         push!(depnames, String(name))
     end
     return depnames
+end
+
+function project_stdlib_depnames(project::AbstractDict; include_weakdeps::Bool = true)
+    stdlibs = Set{String}()
+    deps = get(project, "deps", Dict{String, Any}())
+    weakdeps = if include_weakdeps
+        get(project, "weakdeps", Dict{String, Any}())
+    else
+        Dict{String, Any}()
+    end
+    for (name, uuid) in pairs(deps)
+        uuid isa AbstractString && is_stdlib_uuid(uuid) && push!(stdlibs, String(name))
+    end
+    for (name, uuid) in pairs(weakdeps)
+        uuid isa AbstractString && is_stdlib_uuid(uuid) && push!(stdlibs, String(name))
+    end
+    return stdlibs
+end
+
+function known_stdlib_names()
+    names = Set{String}()
+    try
+        if isdefined(Pkg.Types, :stdlibs)
+            for (name, _) in pairs(Pkg.Types.stdlibs())
+                push!(names, String(name))
+            end
+        end
+    catch
+    end
+    return names
 end
 
 function add_registry_deps_to_temp_env!(names::Set{String})
@@ -49,6 +84,17 @@ function add_registry_deps_to_temp_env!(names::Set{String})
             end
         end
     end
+end
+
+function versions_by_name()
+    depinfo = Pkg.dependencies()
+    by_name = Dict{String, VersionNumber}()
+    for (_, info) in depinfo
+        isnothing(info.name) && continue
+        isnothing(info.version) && continue
+        by_name[String(info.name)] = info.version
+    end
+    return by_name
 end
 
 function write_compat_entries!(
@@ -97,10 +143,19 @@ function add_compat_entries!(
     depnames = project_depnames(project; include_weakdeps)
     existing_compat = Set{String}(String.(keys(compat)))
     missing = setdiff(depnames, existing_compat)
+    julia_compat_target = if haskey(compat, "julia")
+        String(compat["julia"])
+    else
+        lts_julia_compat(; allow_install_juliaup, fallback = julia_fallback)
+    end
 
     additions = Dict{String, String}()
     if !isempty(missing)
-        inferred = infer_compat_entries(project_toml; include_weakdeps)
+        inferred = infer_compat_entries(
+            project_toml;
+            include_weakdeps,
+            stdlib_compat = julia_compat_target
+        )
         for pkg in sort!(collect(missing))
             haskey(inferred, pkg) ||
                 error("Could not infer compat entry for dependency \"$pkg\".")
@@ -108,8 +163,7 @@ function add_compat_entries!(
         end
     end
     if include_julia && !haskey(compat, "julia")
-        additions["julia"] =
-            lts_julia_compat(; allow_install_juliaup, fallback = julia_fallback)
+        additions["julia"] = julia_compat_target
     end
 
     isempty(additions) && return nothing
@@ -128,12 +182,17 @@ end
 
 function infer_compat_entries(
         project_toml::AbstractString;
-        include_weakdeps::Bool = true
+        include_weakdeps::Bool = true,
+        stdlib_compat::AbstractString = "$(VERSION.major).$(VERSION.minor)"
     )
     project_toml = abspath(project_toml)
     project_dir = dirname(project_toml)
     project = TOML.parsefile(project_toml)
     names = project_depnames(project; include_weakdeps)
+    stdlib_names = union(
+        project_stdlib_depnames(project; include_weakdeps),
+        intersect(names, known_stdlib_names())
+    )
 
     inferred = Dict{String, String}()
     isempty(names) && return inferred
@@ -143,7 +202,16 @@ function infer_compat_entries(
         try
             Pkg.activate(tmp; io = devnull)
             is_package_project = haskey(project, "name") && haskey(project, "uuid")
-            if is_package_project
+            pkg_name = get(project, "name", nothing)
+            entryfile = if pkg_name isa AbstractString
+                joinpath(project_dir, "src", "$(pkg_name).jl")
+            else
+                ""
+            end
+            is_developable_project =
+                is_package_project && pkg_name isa AbstractString &&
+                isfile(entryfile)
+            if is_developable_project
                 try
                     Pkg.develop(; path = project_dir, io = devnull)
                     Pkg.resolve(; io = devnull)
@@ -155,14 +223,22 @@ function infer_compat_entries(
             else
                 add_registry_deps_to_temp_env!(names)
             end
-            depinfo = Pkg.dependencies()
-            by_name =
-                Dict(info.name => info for (_, info) in depinfo if !isnothing(info.name))
+
+            by_name = versions_by_name()
+            missing_names = setdiff(names, Set(keys(by_name)))
+            if !isempty(missing_names)
+                add_registry_deps_to_temp_env!(missing_names)
+                by_name = versions_by_name()
+            end
+
             for name in sort!(collect(names))
-                info = get(by_name, name, nothing)
-                isnothing(info) && continue
-                isnothing(info.version) && continue
-                inferred[name] = compat_lower_bound(info.version)
+                if name ∈ stdlib_names
+                    inferred[name] = String(stdlib_compat)
+                    continue
+                end
+                version = get(by_name, name, nothing)
+                isnothing(version) && continue
+                inferred[name] = compat_lower_bound(version)
             end
         finally
             if !isnothing(previous_project)
