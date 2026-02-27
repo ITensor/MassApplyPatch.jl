@@ -6,44 +6,6 @@ using ITensorFormatter: ITensorFormatter
 using Pkg: Pkg
 using TOML: TOML
 
-function resolve_compat_entries(
-        project_toml::AbstractString,
-        entries::AbstractDict{<:AbstractString, <:Union{Nothing, AbstractString}};
-        include_weakdeps::Bool = true,
-        include_julia::Bool = true,
-        allow_install_juliaup::Bool = true,
-        julia_fallback::AbstractString = "1.10"
-    )
-    needs_inference = [
-        String(pkg) for (pkg, compat_entry) in entries
-            if compat_entry === nothing && String(pkg) != "julia"
-    ]
-    inferred = if isempty(needs_inference)
-        Dict{String, String}()
-    else
-        infer_compat_entries(project_toml; include_weakdeps)
-    end
-    resolved = Dict{String, String}()
-    for (pkg, compat_entry) in entries
-        pkg_str = String(pkg)
-        if compat_entry !== nothing
-            resolved[pkg_str] = String(compat_entry)
-        elseif pkg_str == "julia"
-            resolved["julia"] =
-                lts_julia_compat(; allow_install_juliaup, fallback = julia_fallback)
-        else
-            haskey(inferred, pkg_str) ||
-                error("Could not infer compat entry for dependency \"$pkg_str\".")
-            resolved[pkg_str] = inferred[pkg_str]
-        end
-    end
-    if include_julia && !haskey(entries, "julia")
-        resolved["julia"] =
-            lts_julia_compat(; allow_install_juliaup, fallback = julia_fallback)
-    end
-    return resolved
-end
-
 function write_compat_entries!(
         project_toml::AbstractString,
         entries::AbstractDict{<:AbstractString, <:AbstractString}
@@ -62,51 +24,54 @@ function write_compat_entries!(
 end
 
 """
-    add_compat_entries!(project_toml, entries)
-    add_compat_entries!(project_toml; include_weakdeps=true, include_julia=true, kwargs...)
+    add_compat_entries!(project_toml; include_weakdeps=true, include_julia=true)
 
-Add or update `[compat]` entries in a `Project.toml` file.
-If a compat value is `nothing`, the bound is inferred from resolved dependencies.
-By default, a Julia compat entry is added from Julia LTS.
+Add missing `[compat]` entries in a `Project.toml` file.
+Existing `[compat]` entries are preserved as-is.
+
+Missing entries are computed as:
+
+  - package names in `[deps]` (and optionally `[weakdeps]`)
+  - minus existing package names in `[compat]`
+
+By default, also adds `julia` compat if it is missing.
 """
-function add_compat_entries!(
-        project_toml::AbstractString,
-        entries::AbstractDict{<:AbstractString, <:Union{Nothing, AbstractString}};
-        include_weakdeps::Bool = true,
-        include_julia::Bool = true,
-        allow_install_juliaup::Bool = true,
-        julia_fallback::AbstractString = "1.10"
-    )
-    resolved = resolve_compat_entries(
-        project_toml,
-        entries;
-        include_weakdeps,
-        include_julia,
-        allow_install_juliaup,
-        julia_fallback
-    )
-    return write_compat_entries!(project_toml, resolved)
-end
-
 function add_compat_entries!(
         project_toml::AbstractString;
         include_weakdeps::Bool = true,
         include_julia::Bool = true,
         allow_install_juliaup::Bool = true,
-        julia_fallback::AbstractString = "1.10",
-        kwargs...
+        julia_fallback::AbstractString = "1.10"
     )
-    entries = Dict{String, Union{Nothing, String}}(
-        String(k) => (v === nothing ? nothing : String(v)) for (k, v) in kwargs
-    )
-    return add_compat_entries!(
-        project_toml,
-        entries;
-        include_weakdeps,
-        include_julia,
-        allow_install_juliaup,
-        julia_fallback
-    )
+    project = TOML.parsefile(project_toml)
+    deps = get(project, "deps", Dict{String, Any}())
+    weakdeps = if include_weakdeps
+        get(project, "weakdeps", Dict{String, Any}())
+    else
+        Dict{String, Any}()
+    end
+    compat = get(project, "compat", Dict{String, Any}())
+    depnames = Set{String}(String.(keys(deps)))
+    union!(depnames, String.(keys(weakdeps)))
+    existing_compat = Set{String}(String.(keys(compat)))
+    missing = setdiff(depnames, existing_compat)
+
+    additions = Dict{String, String}()
+    if !isempty(missing)
+        inferred = infer_compat_entries(project_toml; include_weakdeps)
+        for pkg in sort!(collect(missing))
+            haskey(inferred, pkg) ||
+                error("Could not infer compat entry for dependency \"$pkg\".")
+            additions[pkg] = inferred[pkg]
+        end
+    end
+    if include_julia && !haskey(compat, "julia")
+        additions["julia"] =
+            lts_julia_compat(; allow_install_juliaup, fallback = julia_fallback)
+    end
+
+    isempty(additions) && return nothing
+    return write_compat_entries!(project_toml, additions)
 end
 
 function compat_lower_bound(v::VersionNumber)

@@ -43,15 +43,16 @@ end
             name = "ExamplePkg"
             uuid = "11111111-1111-1111-1111-111111111111"
             version = "0.1.0"
+            [deps]
+            ExistingDep = "22222222-2222-2222-2222-222222222222"
+            [compat]
+            ExistingDep = "0.3"
             """
         )
-        MassApplyPatch.add_compat_entries!(
-            project_toml,
-            Dict("julia" => "1.10", "ITensors" => "0.7")
-        )
+        MassApplyPatch.add_compat_entries!(project_toml; include_julia = false)
         data = TOML.parsefile(project_toml)
-        @test data["compat"]["julia"] == "1.10"
-        @test data["compat"]["ITensors"] == "0.7"
+        @test data["compat"]["ExistingDep"] == "0.3"
+        @test length(keys(data["compat"])) == 1
     end
 end
 
@@ -68,8 +69,6 @@ end
         )
         MassApplyPatch.add_compat_entries!(
             project_toml;
-            julia = nothing,
-            include_julia = false,
             allow_install_juliaup = false,
             julia_fallback = "1.10"
         )
