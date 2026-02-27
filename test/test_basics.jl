@@ -30,4 +30,5 @@ using Test: @test, @testset
         MassApplyPatch.filter_open_issues,
         Tuple{AbstractVector{<:AbstractString}, Function}
     )
+    @test hasmethod(MassApplyPatch.delete_branches!, Tuple{Function, Vector{String}})
 end
