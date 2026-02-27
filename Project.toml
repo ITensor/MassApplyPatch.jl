@@ -9,6 +9,7 @@ projects = ["benchmark", "dev", "docs", "examples", "test"]
 [deps]
 Git = "d7ba0133-e1db-5d97-8f8c-041e4b3a1eb2"
 GitHub = "bc5e4493-9b4d-5f90-b8aa-2b2bcaad7a26"
+ITensorFormatter = "b6bf39f1-c9d3-4bad-aad8-593d802f65fd"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 Suppressor = "fd094767-a336-5f1f-9728-57cf17d0bbfb"
 TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
@@ -16,6 +17,7 @@ TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 [compat]
 Git = "1.5"
 GitHub = "5.12"
+ITensorFormatter = "0.2"
 Pkg = "1.10"
 Suppressor = "0.2.8"
 TOML = "1.0.3"
