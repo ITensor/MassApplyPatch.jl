@@ -138,28 +138,36 @@ function infer_compat_entries(
     inferred = Dict{String, String}()
     isempty(names) && return inferred
 
+    previous_project = Base.active_project()
     mktempdir() do tmp
-        Pkg.activate(tmp; io = devnull)
-        is_package_project = haskey(project, "name") && haskey(project, "uuid")
-        if is_package_project
-            try
-                Pkg.develop(; path = project_dir, io = devnull)
-                Pkg.resolve(; io = devnull)
-            catch err
-                @warn "Failed to develop/resolve project at $project_dir while inferring compat, falling back to adding deps by name." exception =
-                    (err, catch_backtrace())
+        try
+            Pkg.activate(tmp; io = devnull)
+            is_package_project = haskey(project, "name") && haskey(project, "uuid")
+            if is_package_project
+                try
+                    Pkg.develop(; path = project_dir, io = devnull)
+                    Pkg.resolve(; io = devnull)
+                catch err
+                    @warn "Failed to develop/resolve project at $project_dir while inferring compat, falling back to adding deps by name." exception =
+                        (err, catch_backtrace())
+                    add_registry_deps_to_temp_env!(names)
+                end
+            else
                 add_registry_deps_to_temp_env!(names)
             end
-        else
-            add_registry_deps_to_temp_env!(names)
-        end
-        depinfo = Pkg.dependencies()
-        by_name = Dict(info.name => info for (_, info) in depinfo if !isnothing(info.name))
-        for name in sort!(collect(names))
-            info = get(by_name, name, nothing)
-            isnothing(info) && continue
-            isnothing(info.version) && continue
-            inferred[name] = compat_lower_bound(info.version)
+            depinfo = Pkg.dependencies()
+            by_name =
+                Dict(info.name => info for (_, info) in depinfo if !isnothing(info.name))
+            for name in sort!(collect(names))
+                info = get(by_name, name, nothing)
+                isnothing(info) && continue
+                isnothing(info.version) && continue
+                inferred[name] = compat_lower_bound(info.version)
+            end
+        finally
+            if !isnothing(previous_project)
+                Pkg.activate(dirname(previous_project); io = devnull)
+            end
         end
     end
 
