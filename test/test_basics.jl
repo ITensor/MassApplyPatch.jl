@@ -156,7 +156,7 @@ end
             uuid = "11111111-1111-1111-1111-111111111111"
             version = "0.1.0"
             [deps]
-            Random = "9a3f8284-686f-5f34-9a11-845980a1fd5c"
+            Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
             """
         )
         MassApplyPatch.add_compat_entries!(

@@ -5,6 +5,7 @@
 using ITensorFormatter: ITensorFormatter
 using Pkg: Pkg
 using TOML: TOML
+using UUIDs: UUID
 
 function dependency_tables(project::AbstractDict; include_weakdeps::Bool = true)
     deps = get(project, "deps", Dict{String, Any}())
@@ -25,14 +26,49 @@ function is_stdlib_name(name::AbstractString)
     return occursin("/stdlib/", norm)
 end
 
+function known_stdlib_uuids()
+    uuids = Set{String}()
+    if isdefined(Pkg.Types, :stdlibs)
+        stdlibs = try
+            Pkg.Types.stdlibs()
+        catch
+            Dict{Any, Any}()
+        end
+        for (k, v) in pairs(stdlibs)
+            for candidate in (k, v)
+                parsed = try
+                    lowercase(string(UUID(string(candidate))))
+                catch
+                    nothing
+                end
+                isnothing(parsed) || push!(uuids, parsed)
+            end
+        end
+    end
+    return uuids
+end
+
+function is_stdlib_dep(name::AbstractString, uuid::Any, stdlib_uuids::Set{String})
+    parsed_uuid = try
+        lowercase(string(UUID(string(uuid))))
+    catch
+        nothing
+    end
+    if !isnothing(parsed_uuid) && (parsed_uuid in stdlib_uuids)
+        return true
+    end
+    return is_stdlib_name(name)
+end
+
 function project_dependency_names(project::AbstractDict; include_weakdeps::Bool = true)
     names = Set{String}()
     stdlibs = Set{String}()
+    stdlib_uuids = known_stdlib_uuids()
     for table in dependency_tables(project; include_weakdeps)
-        for (name, _) in pairs(table)
+        for (name, uuid) in pairs(table)
             name = String(name)
             push!(names, name)
-            is_stdlib_name(name) && push!(stdlibs, name)
+            is_stdlib_dep(name, uuid, stdlib_uuids) && push!(stdlibs, name)
         end
     end
     return names, stdlibs
@@ -182,21 +218,32 @@ function add_compat_entries!(
     is_package_project = haskey(project, "name") && haskey(project, "uuid")
     include_julia = isnothing(include_julia) ? is_package_project : include_julia
     compat = get(project, "compat", Dict{String, Any}())
-    depnames, _ = project_dependency_names(project; include_weakdeps)
+    depnames, stdlib_names = project_dependency_names(project; include_weakdeps)
     existing_compat = Set{String}(String.(keys(compat)))
     missing = setdiff(depnames, existing_compat)
-    julia_compat_target = if haskey(compat, "julia")
-        String(compat["julia"])
-    else
-        lts_julia_compat(; allow_install_juliaup, fallback = julia_fallback)
+    julia_compat_target = nothing
+    function get_julia_compat_target()
+        if isnothing(julia_compat_target)
+            julia_compat_target = if haskey(compat, "julia")
+                String(compat["julia"])
+            else
+                lts_julia_compat(; allow_install_juliaup, fallback = julia_fallback)
+            end
+        end
+        return julia_compat_target
     end
 
     additions = Dict{String, String}()
     if !isempty(missing)
+        stdlib_compat_target = if isempty(intersect(missing, stdlib_names))
+            "$(VERSION.major).$(VERSION.minor)"
+        else
+            get_julia_compat_target()
+        end
         inferred = infer_compat_entries(
             project_toml;
             include_weakdeps,
-            stdlib_compat = julia_compat_target
+            stdlib_compat = stdlib_compat_target
         )
         uninferred = setdiff(missing, Set(keys(inferred)))
         isempty(uninferred) || error(
@@ -207,7 +254,7 @@ function add_compat_entries!(
         end
     end
     if include_julia && !haskey(compat, "julia")
-        additions["julia"] = julia_compat_target
+        additions["julia"] = get_julia_compat_target()
     end
 
     isempty(additions) && return nothing
@@ -286,8 +333,13 @@ function detect_lts_julia_version(; allow_install_juliaup::Bool = true)
 
     allow_install_juliaup || return nothing
 
-    success_quiet(`juliaup --version`) || try_install_juliaup!()
-    success_quiet(`juliaup add lts`)
+    juliaup = Sys.which("juliaup")
+    if isnothing(juliaup)
+        try_install_juliaup!() || return nothing
+        juliaup = Sys.which("juliaup")
+        isnothing(juliaup) && return nothing
+    end
+    success_quiet(`$juliaup add lts`) || return nothing
     return read_version_cmd(`julia +lts --startup-file=no -e "print(VERSION)"`)
 end
 
