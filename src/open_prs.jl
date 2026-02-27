@@ -4,7 +4,7 @@ using GitHub: GitHub
     open_prs(repos::AbstractVector{<:AbstractString}; sort="updated", direction="desc")
 
 Return a `Vector` of named tuples `(url, branch, title, body)` (all `String`) for all open PRs
-in `repo` (format: `"OWNER/REPO"`), sorted by most recently updated first.
+in each repository of `repos` (format: `"OWNER/REPO"`), sorted by most recently updated first.
 """
 function open_prs(repos::AbstractVector{<:AbstractString}; kwargs...)
     return map(repo -> open_prs(repo; kwargs...), repos)
