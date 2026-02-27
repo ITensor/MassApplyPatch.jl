@@ -41,7 +41,7 @@ function add_compat_entries!(
         include_weakdeps::Bool = true,
         include_julia::Bool = true,
         allow_install_juliaup::Bool = true,
-        julia_fallback::AbstractString = "1.10"
+        julia_fallback::Union{Nothing, AbstractString} = nothing
     )
     project = TOML.parsefile(project_toml)
     deps = get(project, "deps", Dict{String, Any}())
@@ -155,10 +155,15 @@ end
 
 function lts_julia_compat(;
         allow_install_juliaup::Bool = true,
-        fallback::AbstractString = "1.10"
+        fallback::Union{Nothing, AbstractString} = nothing
     )
     version = detect_lts_julia_version(; allow_install_juliaup)
-    isnothing(version) && return String(fallback)
+    if isnothing(version)
+        if isnothing(fallback)
+            return "$(VERSION.major).$(VERSION.minor)"
+        end
+        return String(fallback)
+    end
     return "$(version.major).$(version.minor)"
 end
 
