@@ -36,13 +36,13 @@ end
 function add_registry_deps_to_temp_env!(names::Set{String})
     specs = [Pkg.PackageSpec(; name) for name in sort!(collect(names))]
     return try
-        Pkg.add(specs)
+        Pkg.add(specs; io = devnull)
     catch err
         @warn "Failed to add all dependencies in a single call; falling back to per-package adds." exception =
             (err, catch_backtrace())
         for spec in specs
             try
-                Pkg.add(spec)
+                Pkg.add(spec; io = devnull)
             catch inner_err
                 @warn "Could not add dependency $(spec.name) while inferring compat; skipping." exception =
                     (inner_err, catch_backtrace())
@@ -135,12 +135,12 @@ function infer_compat_entries(
     isempty(names) && return inferred
 
     mktempdir() do tmp
-        Pkg.activate(tmp)
+        Pkg.activate(tmp; io = devnull)
         is_package_project = haskey(project, "name") && haskey(project, "uuid")
         if is_package_project
             try
-                Pkg.develop(; path = project_dir)
-                Pkg.resolve()
+                Pkg.develop(; path = project_dir, io = devnull)
+                Pkg.resolve(; io = devnull)
             catch err
                 @warn "Failed to develop/resolve project at $project_dir while inferring compat, falling back to adding deps by name." exception =
                     (err, catch_backtrace())
