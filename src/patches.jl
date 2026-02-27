@@ -14,31 +14,6 @@ function dependency_tables(project::AbstractDict; include_weakdeps::Bool = true)
     return (deps,)
 end
 
-function is_stdlib_uuid(uuid_str::AbstractString)
-    try
-        uuid = Base.UUID(uuid_str)
-        if isdefined(Pkg.Types, :is_stdlib)
-            return Pkg.Types.is_stdlib(uuid)
-        end
-        if isdefined(Pkg.Types, :stdlibs)
-            stdlibs = Pkg.Types.stdlibs()
-            for (k, v) in pairs(stdlibs)
-                try
-                    Base.UUID(string(k)) == uuid && return true
-                catch
-                end
-                try
-                    Base.UUID(string(v)) == uuid && return true
-                catch
-                end
-            end
-        end
-        return false
-    catch
-        return false
-    end
-end
-
 function is_stdlib_name(name::AbstractString)
     path = try
         Base.find_package(String(name))
@@ -50,28 +25,23 @@ function is_stdlib_name(name::AbstractString)
     return occursin("/stdlib/", norm)
 end
 
-function is_stdlib_dep(name::AbstractString, uuid)
-    return (uuid isa AbstractString && is_stdlib_uuid(uuid)) || is_stdlib_name(name)
-end
-
 function project_dependency_names(project::AbstractDict; include_weakdeps::Bool = true)
     names = Set{String}()
     stdlibs = Set{String}()
     for table in dependency_tables(project; include_weakdeps)
-        for (name, uuid) in pairs(table)
+        for (name, _) in pairs(table)
             name = String(name)
             push!(names, name)
-            is_stdlib_dep(name, uuid) && push!(stdlibs, name)
+            is_stdlib_name(name) && push!(stdlibs, name)
         end
     end
     return names, stdlibs
 end
 
 function is_developable_project(project::AbstractDict, project_dir::AbstractString)
-    is_package_project = haskey(project, "name") && haskey(project, "uuid")
     pkg_name = get(project, "name", nothing)
     pkg_name isa AbstractString || return false
-    return is_package_project && isfile(joinpath(project_dir, "src", "$(pkg_name).jl"))
+    return haskey(project, "uuid") && isfile(joinpath(project_dir, "src", "$(pkg_name).jl"))
 end
 
 function run_capture(cmd::Cmd)
@@ -228,9 +198,11 @@ function add_compat_entries!(
             include_weakdeps,
             stdlib_compat = julia_compat_target
         )
-        for pkg in sort!(collect(missing))
-            haskey(inferred, pkg) ||
-                error("Could not infer compat entry for dependency \"$pkg\".")
+        uninferred = setdiff(missing, Set(keys(inferred)))
+        isempty(uninferred) || error(
+            "Could not infer compat entry for dependencies: $(join(sort(collect(uninferred)), ", "))."
+        )
+        for pkg in sort(collect(missing))
             additions[pkg] = inferred[pkg]
         end
     end
