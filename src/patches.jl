@@ -6,6 +6,14 @@ using ITensorFormatter: ITensorFormatter
 using Pkg: Pkg
 using TOML: TOML
 
+function dependency_tables(project::AbstractDict; include_weakdeps::Bool = true)
+    deps = get(project, "deps", Dict{String, Any}())
+    if include_weakdeps
+        return (deps, get(project, "weakdeps", Dict{String, Any}()))
+    end
+    return (deps,)
+end
+
 function is_stdlib_uuid(uuid_str::AbstractString)
     try
         uuid = Base.UUID(uuid_str)
@@ -42,71 +50,123 @@ function is_stdlib_name(name::AbstractString)
     return occursin("/stdlib/", norm)
 end
 
-function project_depnames(project::AbstractDict; include_weakdeps::Bool = true)
-    depnames = Set{String}()
-    deps = get(project, "deps", Dict{String, Any}())
-    weakdeps = if include_weakdeps
-        get(project, "weakdeps", Dict{String, Any}())
-    else
-        Dict{String, Any}()
-    end
-    for (name, uuid) in pairs(deps)
-        push!(depnames, String(name))
-    end
-    for (name, uuid) in pairs(weakdeps)
-        push!(depnames, String(name))
-    end
-    return depnames
+function is_stdlib_dep(name::AbstractString, uuid)
+    return (uuid isa AbstractString && is_stdlib_uuid(uuid)) || is_stdlib_name(name)
 end
 
-function project_stdlib_depnames(project::AbstractDict; include_weakdeps::Bool = true)
+function project_dependency_names(project::AbstractDict; include_weakdeps::Bool = true)
+    names = Set{String}()
     stdlibs = Set{String}()
-    deps = get(project, "deps", Dict{String, Any}())
-    weakdeps = if include_weakdeps
-        get(project, "weakdeps", Dict{String, Any}())
-    else
-        Dict{String, Any}()
-    end
-    for (name, uuid) in pairs(deps)
-        if (uuid isa AbstractString && is_stdlib_uuid(uuid)) || is_stdlib_name(String(name))
-            push!(stdlibs, String(name))
+    for table in dependency_tables(project; include_weakdeps)
+        for (name, uuid) in pairs(table)
+            name = String(name)
+            push!(names, name)
+            is_stdlib_dep(name, uuid) && push!(stdlibs, name)
         end
     end
-    for (name, uuid) in pairs(weakdeps)
-        if (uuid isa AbstractString && is_stdlib_uuid(uuid)) || is_stdlib_name(String(name))
-            push!(stdlibs, String(name))
-        end
-    end
-    return stdlibs
+    return names, stdlibs
 end
 
-function add_registry_deps_to_temp_env!(names::Set{String})
-    specs = [Pkg.PackageSpec(; name) for name in sort!(collect(names))]
-    return try
-        Pkg.add(specs; io = devnull)
-    catch err
-        @warn "Failed to add all dependencies in a single call; falling back to per-package adds." exception =
-            (err, catch_backtrace())
-        for spec in specs
-            try
-                Pkg.add(spec; io = devnull)
-            catch inner_err
-                @warn "Could not add dependency $(spec.name) while inferring compat; skipping." exception =
-                    (inner_err, catch_backtrace())
+function is_developable_project(project::AbstractDict, project_dir::AbstractString)
+    is_package_project = haskey(project, "name") && haskey(project, "uuid")
+    pkg_name = get(project, "name", nothing)
+    pkg_name isa AbstractString || return false
+    return is_package_project && isfile(joinpath(project_dir, "src", "$(pkg_name).jl"))
+end
+
+function run_capture(cmd::Cmd)
+    out = IOBuffer()
+    err = IOBuffer()
+    proc = run(pipeline(ignorestatus(cmd); stdout = out, stderr = err))
+    if !success(proc)
+        stdout_str = strip(String(take!(out)))
+        stderr_str = strip(String(take!(err)))
+        msg = IOBuffer()
+        println(msg, "Failed to run command")
+        println(msg, "Command: $(cmd)")
+        println(msg, "Exit code: $(proc.exitcode)")
+        !isempty(stdout_str) && println(msg, "stdout:\n$stdout_str")
+        !isempty(stderr_str) && println(msg, "stderr:\n$stderr_str")
+        error(String(take!(msg)))
+    end
+    return String(take!(out))
+end
+
+function infer_versions_in_subprocess(
+        names::Set{String};
+        project_dir::Union{Nothing, AbstractString} = nothing
+    )
+    isempty(names) && return Dict{String, VersionNumber}()
+
+    script = """
+    using Pkg
+    names = String.(filter(!isempty, split(get(ENV, "MAP_DEP_NAMES", ""), '\\n')))
+    names_set = Set(names)
+    Pkg.activate(mktempdir(); io = devnull)
+
+    if get(ENV, "MAP_DEVELOP_PROJECT", "0") == "1"
+        try
+            Pkg.develop(; path = ENV["MAP_PROJECT_DIR"], io = devnull)
+            Pkg.resolve(; io = devnull)
+        catch
+        end
+    end
+
+    function versions_by_name()
+        return Dict(
+            String(info.name) => info.version for
+            (_, info) in Pkg.dependencies() if !isnothing(info.name) && !isnothing(info.version)
+        )
+    end
+
+    by_name = versions_by_name()
+    missing = setdiff(names_set, Set(keys(by_name)))
+    if !isempty(missing)
+        specs = [Pkg.PackageSpec(; name) for name in sort(collect(missing))]
+        try
+            Pkg.add(specs; io = devnull)
+        catch
+            for spec in specs
+                try
+                    Pkg.add(spec; io = devnull)
+                catch
+                end
             end
         end
+        by_name = versions_by_name()
     end
-end
 
-function versions_by_name()
-    depinfo = Pkg.dependencies()
-    by_name = Dict{String, VersionNumber}()
-    for (_, info) in depinfo
-        isnothing(info.name) && continue
-        isnothing(info.version) && continue
-        by_name[String(info.name)] = info.version
+    for name in sort(names)
+        version = get(by_name, name, nothing)
+        isnothing(version) && continue
+        println(name, "=", version)
     end
-    return by_name
+    """
+
+    env = Dict(
+        "MAP_DEP_NAMES" => join(sort(collect(names)), "\n"),
+        "MAP_DEVELOP_PROJECT" => isnothing(project_dir) ? "0" : "1",
+        "MAP_PROJECT_DIR" => isnothing(project_dir) ? "" : String(project_dir)
+    )
+    julia_cmd = Base.julia_cmd()
+    cmd = setenv(
+        `$julia_cmd --startup-file=no --history-file=no --color=no -e $script`,
+        env
+    )
+    output = run_capture(cmd)
+
+    inferred = Dict{String, VersionNumber}()
+    for line in split(chomp(output), '\n')
+        isempty(line) && continue
+        parts = split(line, '='; limit = 2)
+        length(parts) == 2 || continue
+        name, version = parts
+        try
+            inferred[String(name)] = VersionNumber(String(version))
+        catch
+        end
+    end
+    return inferred
 end
 
 function write_compat_entries!(
@@ -152,7 +212,7 @@ function add_compat_entries!(
     is_package_project = haskey(project, "name") && haskey(project, "uuid")
     include_julia = isnothing(include_julia) ? is_package_project : include_julia
     compat = get(project, "compat", Dict{String, Any}())
-    depnames = project_depnames(project; include_weakdeps)
+    depnames, _ = project_dependency_names(project; include_weakdeps)
     existing_compat = Set{String}(String.(keys(compat)))
     missing = setdiff(depnames, existing_compat)
     julia_compat_target = if haskey(compat, "julia")
@@ -200,60 +260,27 @@ function infer_compat_entries(
     project_toml = abspath(project_toml)
     project_dir = dirname(project_toml)
     project = TOML.parsefile(project_toml)
-    names = project_depnames(project; include_weakdeps)
-    stdlib_names = project_stdlib_depnames(project; include_weakdeps)
+    names, stdlib_names = project_dependency_names(project; include_weakdeps)
 
     inferred = Dict{String, String}()
     isempty(names) && return inferred
 
-    previous_project = Base.active_project()
-    mktempdir() do tmp
-        try
-            Pkg.activate(tmp; io = devnull)
-            is_package_project = haskey(project, "name") && haskey(project, "uuid")
-            pkg_name = get(project, "name", nothing)
-            entryfile = if pkg_name isa AbstractString
-                joinpath(project_dir, "src", "$(pkg_name).jl")
-            else
-                ""
-            end
-            is_developable_project =
-                is_package_project && pkg_name isa AbstractString &&
-                isfile(entryfile)
-            if is_developable_project
-                try
-                    Pkg.develop(; path = project_dir, io = devnull)
-                    Pkg.resolve(; io = devnull)
-                catch err
-                    @warn "Failed to develop/resolve project at $project_dir while inferring compat, falling back to adding deps by name." exception =
-                        (err, catch_backtrace())
-                    add_registry_deps_to_temp_env!(names)
-                end
-            else
-                add_registry_deps_to_temp_env!(names)
-            end
+    nonstdlib_names = setdiff(names, stdlib_names)
+    project_dir_for_develop =
+        is_developable_project(project, project_dir) ? project_dir : nothing
+    versions = infer_versions_in_subprocess(
+        nonstdlib_names;
+        project_dir = project_dir_for_develop
+    )
 
-            by_name = versions_by_name()
-            missing_names = setdiff(names, Set(keys(by_name)))
-            if !isempty(missing_names)
-                add_registry_deps_to_temp_env!(missing_names)
-                by_name = versions_by_name()
-            end
-
-            for name in sort!(collect(names))
-                if name ∈ stdlib_names
-                    inferred[name] = String(stdlib_compat)
-                    continue
-                end
-                version = get(by_name, name, nothing)
-                isnothing(version) && continue
-                inferred[name] = compat_lower_bound(version)
-            end
-        finally
-            if !isnothing(previous_project)
-                Pkg.activate(dirname(previous_project); io = devnull)
-            end
+    for name in sort(collect(names))
+        if name ∈ stdlib_names
+            inferred[name] = String(stdlib_compat)
+            continue
         end
+        version = get(versions, name, nothing)
+        isnothing(version) && continue
+        inferred[name] = compat_lower_bound(version)
     end
 
     return inferred
@@ -261,7 +288,7 @@ end
 
 function read_version_cmd(cmd::Cmd)
     try
-        return VersionNumber(strip(readchomp(cmd)))
+        return VersionNumber(strip(read_quiet(cmd, String)))
     catch
         return nothing
     end

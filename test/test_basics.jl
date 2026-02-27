@@ -99,6 +99,25 @@ end
     end
 end
 
+@testset "add_compat_entries! unnamed project skips julia by default" begin
+    mktempdir() do dir
+        project_toml = joinpath(dir, "Project.toml")
+        write(
+            project_toml,
+            """
+            [deps]
+            JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+            """
+        )
+        MassApplyPatch.add_compat_entries!(
+            project_toml;
+            allow_install_juliaup = false
+        )
+        data = TOML.parsefile(project_toml)
+        @test !haskey(data["compat"], "julia")
+    end
+end
+
 @testset "add_compat_entries! includes weakdeps" begin
     mktempdir() do dir
         project_toml = joinpath(dir, "Project.toml")
