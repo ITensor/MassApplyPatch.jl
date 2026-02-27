@@ -39,7 +39,7 @@ default_kwarg(patchname, arg::Symbol) = default_kwarg(patchname, Val(arg))
 default_kwarg(patchname, arg::Val) = error("Not defined.")
 
 function default_kwarg(patchname, key::Val{:branch})
-    return "$(patchname_string(patchname))-patch"
+    return "patch/$(patchname_string(patchname))"
 end
 function default_kwarg(patchname, key::Val{:title})
     return "Apply $(patchname_string(patchname)) patch"
