@@ -9,6 +9,7 @@ include("close_pr.jl")
 include("delete_branches.jl")
 include("open_prs.jl")
 include("open_issues.jl")
+include("create_issues.jl")
 include("pr_status.jl")
 include("trigger_workflow_dispatch.jl")
 
