@@ -19,17 +19,21 @@ function create_issues!(
         repo::AbstractString; title::AbstractString, body::AbstractString = "",
         labels::AbstractVector{<:AbstractString} = String[], pin::Bool = false
     )
+    @info "Creating issue in $repo: $title"
     cmd = `gh issue create --repo $repo --title $title --body $body`
     for label in labels
         cmd = `$cmd --label $label`
     end
     url = readchomp(cmd)
     if pin
+        @info "Pinning issue: $url"
         number = last(split(url, "/"))
         node_id = readchomp(`gh api repos/$repo/issues/$number --jq '.node_id'`)
-        run(
+        readchomp(
             `gh api graphql -f query="mutation { pinIssue(input: { issueId: \"$node_id\" }) { issue { id } } }"`
         )
+        @info "Pinned issue: $url"
     end
+    @info "Created issue: $url"
     return (; url)
 end
