@@ -26,7 +26,10 @@ function create_issues!(
     url = readchomp(cmd)
     if pin
         number = last(split(url, "/"))
-        run(`gh api repos/$repo/issues/$number/pin --method PUT`)
+        node_id = readchomp(`gh api repos/$repo/issues/$number --jq '.node_id'`)
+        run(
+            `gh api graphql -f query="mutation { pinIssue(input: { issueId: \"$node_id\" }) { issue { id } } }"`
+        )
     end
     return (; url)
 end
