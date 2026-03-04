@@ -1,11 +1,12 @@
 using Documenter: Documenter, DocMeta, deploydocs, makedocs
+using ITensorFormatter: ITensorFormatter
 using MassApplyPatch: MassApplyPatch
 
 DocMeta.setdocmeta!(
     MassApplyPatch, :DocTestSetup, :(using MassApplyPatch); recursive = true
 )
 
-include("make_index.jl")
+ITensorFormatter.make_index!(pkgdir(MassApplyPatch))
 
 makedocs(;
     modules = [MassApplyPatch],
