@@ -50,28 +50,73 @@ end
 
 const git = Git.git()
 
-function clone_repo(repo::AbstractString, destdir::AbstractString)
-    url = "git@github.com:$repo.git"
+"""
+    BotAuth(; token, user_name, user_email)
+
+Credentials for attributing MassApplyPatch's clone, push, commit, and
+PR-creation operations to a dedicated bot account instead of the local
+user.
+
+  - `token`: a GitHub PAT under the bot account. Used for HTTPS clone /
+    push auth and for GitHub API calls.
+  - `user_name`, `user_email`: git commit author identity. The typical
+    pattern for the email is `<numeric-id>+<login>@users.noreply.github.com`,
+    which GitHub links back to the bot's profile.
+
+Pass to `make_patch_pr` via the `auth` kwarg. When `auth === nothing`
+(default), MassApplyPatch falls back to SSH clone + the user's local
+git config + `gh auth token` for the API.
+"""
+Base.@kwdef struct BotAuth
+    token::String
+    user_name::String
+    user_email::String
+end
+
+function clone_repo(
+        repo::AbstractString, destdir::AbstractString;
+        auth::Union{BotAuth, Nothing} = nothing
+    )
+    url = if isnothing(auth)
+        "git@github.com:$repo.git"
+    else
+        "https://x-access-token:$(auth.token)@github.com/$repo.git"
+    end
     try
         run_with_output(`$git clone $url $destdir`)
     catch e
         @error "Failed to clone repository $repo: $e"
+        return nothing
+    end
+    if !isnothing(auth)
+        run_with_output(`$git -C $destdir config user.name $(auth.user_name)`)
+        run_with_output(`$git -C $destdir config user.email $(auth.user_email)`)
     end
     return nothing
 end
 
-function github_auth()
-    # Try gh CLI first, then fall back to ENV
-    token = get(ENV, "GITHUB_AUTH", "")
-    if isempty(token)
-        try
-            token = readchomp(`gh auth token`)
-        catch e
-            @error "Failed to get GitHub auth token from gh CLI: $e"
+function github_auth(; auth::Union{BotAuth, Nothing} = nothing)
+    token = if !isnothing(auth)
+        auth.token
+    else
+        # Fall back to legacy ENV[\"GITHUB_AUTH\"] or gh CLI.
+        env_token = get(ENV, "GITHUB_AUTH", "")
+        if !isempty(env_token)
+            env_token
+        else
+            cli_token = ""
+            try
+                cli_token = readchomp(`gh auth token`)
+            catch e
+                @error "Failed to get GitHub auth token from gh CLI: $e"
+            end
+            cli_token
         end
     end
     isempty(token) &&
-        error("Install and authenticate the `gh` CLI, or set ENV[\"GITHUB_AUTH\"].")
+        error(
+        "Pass `auth = BotAuth(...)`, install+authenticate the `gh` CLI, or set ENV[\"GITHUB_AUTH\"]."
+    )
     return GitHub.authenticate(token)
 end
 
@@ -123,11 +168,12 @@ function make_patch_pr(
         notrigger_patchname = String[],
         branch::AbstractString = default_kwarg(patchname, :branch),
         title::AbstractString = default_kwarg(patchname, :title),
-        body::AbstractString = default_kwarg(patchname, :body)
+        body::AbstractString = default_kwarg(patchname, :body),
+        auth::Union{BotAuth, Nothing} = nothing
     )
     tmpdir = mktempdir()
     repodir = joinpath(tmpdir, split(repo, "/"; limit = 2)[2])
-    clone_repo(repo, repodir)
+    clone_repo(repo, repodir; auth)
     !isdir(repodir) && return nothing
     url = cd(repodir) do
         branchname = unique_branch_name(branch, git)
@@ -148,8 +194,8 @@ function make_patch_pr(
         run_with_output(`$git add .`)
         run_with_output(`$git commit -m $title`)
         run_with_output(`$git push origin $branchname`)
-        auth = github_auth()
-        return open_pr(repo, branchname; title, body, auth)
+        gh_auth = github_auth(; auth)
+        return open_pr(repo, branchname; title, body, auth = gh_auth)
     end
     return url
 end
