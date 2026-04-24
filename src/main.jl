@@ -213,7 +213,7 @@ Arguments:
 
 The patch function should be provided as a Julia file, which is included and must define a function `patch(repo_path)`.
 """
-function main(argv)
+function main(argv; auth::Union{BotAuth, Nothing} = nothing)
     # Get the patch names to determine which patches to apply.
     patchargs = filter(arg -> startswith(arg, "--patch="), argv)
     patchnames = map(arg -> split(arg, "="; limit = 2)[2], patchargs)
@@ -253,7 +253,7 @@ function main(argv)
             make_patch_pr(
                 patchnames, repo; notrigger_patchname = notrigger_patchnames, branch,
                 title,
-                body
+                body, auth
             )
         catch error
             @error "Error patching $repo: $error"
